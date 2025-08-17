@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Sheet Viewer – All Rows</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Identity Services (OAuth 2.0 in-browser) -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    .card { background: #fff; border-radius: 1rem; box-shadow: 0 8px 16px rgba(0,0,0,.06); padding: 1rem; }
+    .input { border: 1px solid #e5e7eb; border-radius: .5rem; padding: .5rem .75rem; width: 100%; }
+    .mono  { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-7xl mx-auto p-6 space-y-6">
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold">Data Sheet Viewer</h1>
+        <p class="text-gray-600 mt-1">Shows every row from the <span class="font-semibold">Data</span> sheet using the same Sheets API/OAuth as your dashboard.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="index.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Back to dashboard</a>
+        <button id="signInBtn" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Sign in</button>
+        <span id="whoAmI" class="text-xs text-gray-600"></span>
+        <button id="refreshBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
+        <button id="exportBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Export CSV</button>
+        <a id="sheetLink" href="#" target="_blank" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="flex items-end gap-4 flex-wrap">
+        <label class="block">
+          <span class="text-sm text-gray-700">Google Sheet ID</span>
+          <input id="sheetId" class="input" value="193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-gray-700">Sheet name</span>
+          <input id="sheetName" class="input" value="Data" />
+        </label>
+        <div class="flex-1"></div>
+        <div class="text-sm text-gray-500">Mode: <span id="modeChip" class="font-medium">Auto</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="overflow-auto">
+        <table id="sheetTable" class="min-w-full text-sm">
+          <thead class="bg-gray-100 text-gray-700"></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="rowCount" class="mt-2 text-xs text-gray-600"></div>
+    </section>
+
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-2">Diagnostics</h2>
+      <div id="diag" class="mono text-xs whitespace-pre-wrap"></div>
+    </section>
+  </div>
+
+  <script>
+    // ===== Config (same API + OAuth as index) =====
+    const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
+    const SHEETS_SCOPE   = "https://www.googleapis.com/auth/spreadsheets"; // read-write scope works for read too
+    let accessToken = null;
+    let tokenClient = null;
+
+    // ===== Helpers =====
+    function diag(msg){ const d=document.getElementById('diag'); d.textContent += (msg + "\n"); }
+    function setModeLabel(m){ document.getElementById('modeChip').textContent = m; }
+    function sanitizeAntiXSSI(t){ return t.replace(/^\)\]\}'\n/, '').replace(/^\/\*O_o\*\/\n/, ''); }
+
+    function parseGviz(text){
+      const raw = sanitizeAntiXSSI(text);
+      const m = raw.match(/google\.visualization\.Query\.setResponse\((.*)\);?/s);
+      if (!m) throw new Error('Unexpected GViz format');
+      return JSON.parse(m[1]);
+    }
+
+    function gvizToValues(g){
+      const cols = (g.table && g.table.cols ? g.table.cols : []).map(c => (c.label || c.id || '').trim());
+      const rows = (g.table && g.table.rows ? g.table.rows : []).map(r => (r.c||[]).map(c => c && c.v != null ? c.v : ''));
+      return [cols, ...rows];
+    }
+
+    function valuesToTable(values){
+      const table = document.getElementById('sheetTable');
+      const thead = table.querySelector('thead');
+      const tbody = table.querySelector('tbody');
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+      if (!values || !values.length){ document.getElementById('rowCount').textContent = '0 rows'; return; }
+
+      const headers = values[0] || [];
+      const trh = document.createElement('tr');
+      headers.forEach(h => { const th=document.createElement('th'); th.className='p-2 text-left'; th.textContent = String(h || ''); trh.appendChild(th); });
+      thead.appendChild(trh);
+
+      for (let r=1; r<values.length; r++){
+        const tr=document.createElement('tr');
+        const row=values[r];
+        for (let c=0; c<headers.length; c++){
+          const td=document.createElement('td');
+          td.className='p-2 whitespace-nowrap';
+          const v = row[c] !== undefined ? row[c] : '';
+          td.textContent = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      document.getElementById('rowCount').textContent = `${values.length - 1} data row(s)`;
+    }
+
+    function toCSV(values){
+      const esc = (s) => {
+        const str = s==null ? '' : String(s);
+        if (/[",\n]/.test(str)) return '"' + str.replace(/"/g,'""') + '"';
+        return str;
+      };
+      return values.map(row => row.map(esc).join(',')).join('\n');
+    }
+
+    function download(filename, text){
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], {type:'text/csv'}));
+      a.download = filename; a.click(); URL.revokeObjectURL(a.href);
+    }
+
+    // ===== Loaders =====
+    async function fetchValuesPrivate(spreadsheetId, sheetName){
+      const range = encodeURIComponent(`${sheetName}!A1:Z10000`);
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?majorDimension=ROWS`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok){ throw new Error(`Sheets API error ${res.status}: ${await res.text()}`); }
+      const j = await res.json();
+      return j.values || [];
+    }
+
+    function buildGvizUrl(id, sheet){ const p=new URLSearchParams(sheet?{sheet}:{}) ; return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?${p.toString()}`; }
+
+    async function fetchValuesPublicGviz(spreadsheetId, sheetName){
+      const url = buildGvizUrl(spreadsheetId, sheetName);
+      const res = await fetch(url);
+      const txt = await res.text();
+      const g = parseGviz(txt);
+      return gvizToValues(g);
+    }
+
+    async function loadAll(){
+      const id = document.getElementById('sheetId').value.trim();
+      const name = document.getElementById('sheetName').value.trim();
+      document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`;
+      try {
+        let values;
+        if (accessToken){
+          setModeLabel('Private (Sheets API)');
+          values = await fetchValuesPrivate(id, name);
+        } else {
+          setModeLabel('Public (GViz)');
+          values = await fetchValuesPublicGviz(id, name);
+        }
+        valuesToTable(values);
+        diag(`Loaded ${Math.max(0, (values||[]).length-1)} rows, ${values[0] ? values[0].length : 0} columns.`);
+      } catch(e){
+        diag('Load failed: ' + e.message);
+        alert('Load failed: ' + e.message);
+        console.error(e);
+      }
+    }
+
+    // ===== Events and OAuth init =====
+    window.addEventListener('load', () => {
+      // GIS init
+      if (window.google && google.accounts && google.accounts.oauth2){
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SHEETS_SCOPE,
+          callback: (resp) => {
+            if (resp && resp.access_token){
+              accessToken = resp.access_token;
+              document.getElementById('whoAmI').textContent = 'Signed in';
+              loadAll();
+            }
+          }
+        });
+      }
+
+      document.getElementById('signInBtn').addEventListener('click', () => {
+        if (!tokenClient){ alert('Google Identity not ready yet.'); return; }
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      });
+      document.getElementById('refreshBtn').addEventListener('click', loadAll);
+      document.getElementById('exportBtn').addEventListener('click', () => {
+        const table = document.getElementById('sheetTable');
+        // Recreate values from the DOM for export (simple and robust)
+        const values = [];
+        const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent);
+        if (headers.length) values.push(headers);
+        table.querySelectorAll('tbody tr').forEach(tr => {
+          const row = Array.from(tr.children).map(td => td.textContent);
+          values.push(row);
+        });
+        download('data.csv', toCSV(values));
+      });
+
+      loadAll();
+    });
+  </script>
+</body>
+</html>

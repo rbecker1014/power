@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Data Entry — OAuth Sheets API</title>
+  <title>Data Entry — Solar</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://accounts.google.com/gsi/client" async defer onload="window.__gisLoaded && window.__gisLoaded()"></script>
   <style>
@@ -90,13 +90,15 @@
   let accessToken = null;
   let tokenClient = null;
 
-  // Helpers
+  // DOM helpers
   const $ = (id)=>document.getElementById(id);
   const log = (m)=>{ const d=$('diag'); d.textContent += m + "\n"; };
   function todayLocalYMD(){
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
+
+  // Numbers
   function toNumber(v){
     if (v == null) return NaN;
     if (typeof v === 'number') return v;
@@ -110,7 +112,34 @@
     return NaN;
   }
 
-  // Sheets API calls
+  // Date parsing - all LOCAL calendar math without new Date('YYYY-MM-DD')
+  function parseISOYMD(s){
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s||'').trim());
+    return m ? { y:+m[1], m:+m[2], d:+m[3] } : null;
+  }
+  function parseMDY(s){
+    const m = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/.exec(String(s||'').trim());
+    return m ? { y:+m[3], m:+m[1], d:+m[2] } : null;
+  }
+  function parseCellDateToParts(v){
+    if (typeof v === 'string'){
+      return parseISOYMD(v) || parseMDY(v);
+    }
+    return null;
+  }
+  function ymdToString(p){ return `${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`; }
+  function addDaysParts(p, n){
+    const dt = new Date(Date.UTC(p.y, p.m-1, p.d));
+    dt.setUTCDate(dt.getUTCDate() + n);
+    return { y: dt.getUTCFullYear(), m: dt.getUTCMonth()+1, d: dt.getUTCDate() };
+  }
+  function daysBetweenParts(a, b){ // b - a in days
+    const au = Date.UTC(a.y, a.m-1, a.d);
+    const bu = Date.UTC(b.y, b.m-1, b.d);
+    return Math.round((bu - au) / 86400000);
+  }
+
+  // Sheets API
   async function sheetsGet(rangeA1){
     const id = $('sheetId').value.trim();
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1)}?majorDimension=ROWS`;
@@ -119,8 +148,6 @@
     const j = await res.json();
     return j.values || [];
   }
-
-  // Use the APPEND endpoint to avoid row math errors and never overwrite
   async function sheetsAppend(rangeA1ColsOnly, values2d){
     const id = $('sheetId').value.trim();
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1ColsOnly)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
@@ -145,14 +172,7 @@
     return { headers, row: null, index: 0 };
   }
 
-  // Date helpers in local time
-  function dOnly(x){ const d=new Date(x); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
-  function addDays(d, n){ const x=new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate()+n); return x; }
-  function ymd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-  function daysBetween(a,b){ return Math.round((dOnly(b) - dOnly(a))/86400000); }
-
-  // Build rows to fill gaps and final day, based on your rule
-  // Returns only the rows to write - we now always use append
+  // Build rows for missing dates plus final input date
   function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
     const last = findLastRowByA(valuesABC);
     if (!last.row) throw new Error('No last row found. Ensure there is a header row and at least one data row.');
@@ -160,15 +180,18 @@
     const lastITD = toNumber(last.row[1]);
     if (!Number.isFinite(lastITD)) throw new Error('Last ITD missing or not numeric in Column B.');
 
-    const lastDate = dOnly(last.row[0]);
-    const inputDate = dOnly(inputDateStr);
+    const lastParts = parseCellDateToParts(last.row[0]);
+    if (!lastParts) throw new Error('Could not parse last date. Please ensure Column A is a recognizable date.');
 
-    const gapDays = daysBetween(lastDate, inputDate); // input - last
+    const inputParts = parseISOYMD(inputDateStr);
+    if (!inputParts) throw new Error('Input date must be YYYY-MM-DD.');
+
+    const gapDays = daysBetweenParts(lastParts, inputParts); // input - last
     if (gapDays < 1) throw new Error('Input date must be after the last recorded date.');
 
     // Exactly next day: one row
     if (gapDays === 1){
-      return [[ ymd(inputDate), Number(inputITD), Number(inputProd) ]];
+      return [[ ymdToString(inputParts), Number(inputITD), Number(inputProd) ]];
     }
 
     // Missing days exist
@@ -191,15 +214,17 @@
       let prod = i < missingCount ? even : (missingSum - allocated);
       if (Math.abs(prod) < 1e-12) prod = 0;
       runningITD += prod;
-      rows.push([ ymd(addDays(lastDate, i)), Number(runningITD), Number(prod) ]);
+      const parts = addDaysParts(lastParts, i);
+      rows.push([ ymdToString(parts), Number(runningITD), Number(prod) ]);
       allocated += prod;
     }
 
-    rows.push([ ymd(inputDate), Number(inputITD), Number(inputProd) ]);
+    // Final input day must be the actual input date
+    rows.push([ ymdToString(inputParts), Number(inputITD), Number(inputProd) ]);
     return rows;
   }
 
-  // Render last row table
+  // Render last row
   function renderLast(headers, row, index){
     const thead = document.getElementById('lastHead');
     const tbody = document.getElementById('lastBody');
@@ -213,8 +238,8 @@
         const td=document.createElement('td'); td.className='p-2 whitespace-nowrap';
         const raw=row[c];
         let v = raw == null ? '' : String(raw);
-        const maybe = new Date(v);
-        if (c === 0 && !isNaN(maybe)) v = ymd(maybe);
+        const parts = c===0 ? parseCellDateToParts(v) : null;
+        if (parts) v = ymdToString(parts);
         td.textContent = v;
         tbody.appendChild(td);
       }
@@ -241,7 +266,7 @@
 
   async function appendRow(){
     const name = document.getElementById('sheetName').value.trim();
-    const inputDateStr = document.getElementById('inDate').value.trim();
+    const inputDateStr = document.getElementById('inDate').value.trim(); // YYYY-MM-DD
     const inputITD = toNumber(document.getElementById('inITD').value.trim());
     const inputProd = toNumber(document.getElementById('inProd').value.trim());
     const status = document.getElementById('status');
@@ -255,7 +280,6 @@
       const valuesABC = await sheetsGet(`${name}!A1:C10000`);
       const rowsToWrite = buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd);
 
-      // Append all rows in one call - never overwrites
       await sheetsAppend(`${name}!A:C`, rowsToWrite);
 
       status.textContent = `Saved ${rowsToWrite.length} row(s)`; status.className='text-sm ok';
@@ -268,7 +292,7 @@
     }
   }
 
-  // GIS init with onload hook and a fallback poll
+  // GIS init
   window.__gisLoaded = function(){
     try{
       tokenClient = google.accounts.oauth2.initTokenClient({

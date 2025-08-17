@@ -3,90 +3,71 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Entry • Last Row and Append</title>
+  <title>Entry | Last Row and Append</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Identity Services so this page uses the same OAuth client as data.html -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     .card{background:#fff;border-radius:1rem;box-shadow:0 8px 16px rgba(0,0,0,.06);padding:1rem}
     .input{border:1px solid #e5e7eb;border-radius:.5rem;padding:.5rem .75rem;width:100%}
     .ok{color:#065f46}.bad{color:#991b1b}
+    .chip{display:inline-block;border-radius:9999px;padding:.15rem .55rem;background:#f3f4f6;font-size:.75rem}
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
   <div class="max-w-xl mx-auto p-6 space-y-6">
-    <header class="flex items-center justify-between">
+    <header class="flex items-center justify-between gap-3 flex-wrap">
       <h1 class="text-2xl font-bold">Sheet Entry</h1>
-      <nav class="flex gap-2 text-sm">
+      <nav class="flex items-center gap-2 text-sm">
         <a class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" href="index.html">Dashboard</a>
         <a class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" href="data.html">All Rows</a>
+        <button id="signInBtn" class="px-3 py-1 rounded bg-gray-900 text-white">Sign in</button>
+        <span id="whoAmI" class="chip">Public mode</span>
       </nav>
     </header>
 
-    <!-- Last non-empty row in Column A -->
+    <!-- Last non empty row in Column A -->
     <section class="card">
-      <h2 class="text-lg font-semibold mb-3">Last row (Column A not blank)</h2>
-      <div id="lastRowBox" class="text-sm">
-        <div class="grid grid-cols-3 gap-2">
-          <div>
-            <div class="text-gray-500">Date (A)</div>
-            <div id="lastDate" class="font-medium">—</div>
-          </div>
-          <div>
-            <div class="text-gray-500">ITD Production (B)</div>
-            <div id="lastITD" class="font-medium">—</div>
-          </div>
-          <div>
-            <div class="text-gray-500">Daily Production (C)</div>
-            <div id="lastProd" class="font-medium">—</div>
-          </div>
-        </div>
-        <div id="rowMeta" class="text-xs text-gray-500 mt-2"></div>
+      <h2 class="text-lg font-semibold mb-3">Last row (Column A has a value)</h2>
+      <div class="grid grid-cols-3 gap-2 text-sm">
+        <div><div class="text-gray-500">Date (A)</div><div id="lastDate" class="font-medium">None</div></div>
+        <div><div class="text-gray-500">ITD Production (B)</div><div id="lastITD" class="font-medium"></div></div>
+        <div><div class="text-gray-500">Daily Production (C)</div><div id="lastProd" class="font-medium"></div></div>
       </div>
+      <div id="rowMeta" class="text-xs text-gray-500 mt-2"></div>
     </section>
 
     <!-- Append form -->
     <section class="card">
       <h2 class="text-lg font-semibold mb-3">Add new row</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <label class="block">
-          <span class="text-sm text-gray-700">Date (A)</span>
-          <input id="inDate" type="date" class="input" />
-        </label>
-        <label class="block">
-          <span class="text-sm text-gray-700">ITD Production (B)</span>
-          <input id="inITD" type="number" step="any" class="input" placeholder="e.g. 12345" />
-        </label>
-        <label class="block">
-          <span class="text-sm text-gray-700">Daily Production (C)</span>
-          <input id="inProd" type="number" step="any" class="input" placeholder="kWh for the day" />
-        </label>
+        <label class="block"><span class="text-sm text-gray-700">Date (A)</span><input id="inDate" type="date" class="input" /></label>
+        <label class="block"><span class="text-sm text-gray-700">ITD Production (B)</span><input id="inITD" type="number" step="any" class="input" placeholder="12345" /></label>
+        <label class="block"><span class="text-sm text-gray-700">Daily Production (C)</span><input id="inProd" type="number" step="any" class="input" placeholder="kWh" /></label>
       </div>
       <div class="flex items-center gap-3 mt-4">
         <button id="appendBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Append</button>
         <button id="refreshBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
         <span id="status" class="text-sm"></span>
       </div>
+      <p class="text-xs text-gray-500 mt-2">Append writes to the first row where Column A is empty. Server endpoint handles the write.</p>
     </section>
 
-    <!-- Minimal settings note (reads shared endpoint set on data.html) -->
+    <!-- Connection (kept simple and shared with data.html via localStorage) -->
     <section class="card">
       <h2 class="text-lg font-semibold mb-2">Connection</h2>
-      <p class="text-sm text-gray-600">This page reads using the public GViz endpoint. Writing uses the same backend endpoint as <code>data.html</code>.
-        If it is not set there, you can paste it here for convenience.</p>
-      <div class="grid sm:grid-cols-2 gap-3 mt-2">
-        <label class="block">
-          <span class="text-sm text-gray-700">Append endpoint URL</span>
-          <input id="appendUrl" class="input" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" />
-        </label>
-        <label class="block">
-          <span class="text-sm text-gray-700">Shared secret</span>
-          <input id="appendSecret" class="input" placeholder="optional" />
-        </label>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <label class="block"><span class="text-sm text-gray-700">Google Sheet ID</span><input id="sheetId" class="input" value="193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac" /></label>
+        <label class="block"><span class="text-sm text-gray-700">Sheet name</span><input id="sheetName" class="input" value="Data" /></label>
+        <label class="block sm:col-span-2"><span class="text-sm text-gray-700">Append endpoint URL</span><input id="appendUrl" class="input" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" /></label>
+        <label class="block"><span class="text-sm text-gray-700">Shared secret</span><input id="appendSecret" class="input" placeholder="optional" /></label>
       </div>
       <div class="flex items-center gap-3 mt-3">
         <button id="saveCfg" class="px-3 py-2 rounded-lg bg-gray-900 text-white">Save</button>
         <a id="sheetLink" href="#" target="_blank" class="px-3 py-2 rounded-lg bg-gray-200 hover:bg-gray-300">Open Sheet</a>
         <span id="cfgStatus" class="text-sm"></span>
       </div>
+      <p class="text-xs text-gray-500 mt-2">Quick setup: open this page with <code>?append=URL&secret=XYZ</code> to save settings.</p>
     </section>
 
     <section class="card">
@@ -96,89 +77,61 @@
   </div>
 
   <script>
-    // ===== Sheet config (simple, hardcoded id and tab) =====
-    const SHEET_ID = '193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac';
-    const SHEET_NAME = 'Data';
+    // ===== OAuth config: same client id as your viewer page =====
+    const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
+    const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"; // optional here, for private reads if needed
+    let accessToken = null;
+    let tokenClient = null;
 
-    // ===== Shared storage keys (same as data.html) =====
+    // ===== Sheet config (simple default) =====
+    const $ = (id)=>document.getElementById(id);
+    const SHEET_ID_DEFAULT = '193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac';
+    const SHEET_NAME_DEFAULT = 'Data';
+
+    // Shared localStorage keys so this page and data.html stay in sync
     const ENDPOINT_KEYS = ['data:endpoint','append:endpoint','api:endpoint','backend:endpoint'];
     const SECRET_KEYS   = ['data:secret','append:secret','api:secret','backend:secret'];
     const readShared = (keys)=>{ for(const k of keys){ const v=localStorage.getItem(k); if(v) return v; } return ''; };
     const writeShared = (keys,v)=>{ keys.forEach(k=> v? localStorage.setItem(k,v): localStorage.removeItem(k)); };
 
     // ===== Helpers =====
-    const $ = (id)=>document.getElementById(id);
     const todayISO = ()=> new Date().toISOString().slice(0,10);
-    const diag = (m)=>{ const d=$('diag'); d.textContent += m + '\n'; };
-
-    function buildGvizUrl(id, sheet){ const p = new URLSearchParams(sheet?{sheet}:{}) ; return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?${p.toString()}`; }
+    const diag = (m)=>{ const d=$('diag'); d.textContent += m + "\n"; };
+    function buildGvizUrl(id, sheet){ const p=new URLSearchParams(sheet?{sheet}:{}) ; return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?${p.toString()}`; }
     function sanitizeAntiXSSI(t){ return t.replace(/^\)\]\}'\n/, '').replace(/^\/\*O_o\*\/\n/, ''); }
     function parseGviz(text){ const raw=sanitizeAntiXSSI(text); const m=raw.match(/google\.visualization\.Query\.setResponse\((.*)\);?/s); if(!m) throw new Error('Unexpected GViz format'); return JSON.parse(m[1]); }
-    function gvizToValues(g){ const cols=(g.table?.cols||[]).map(c=>(c.label||c.id||'').trim()); const rows=(g.table?.rows||[]).map(r=> (r.c||[]).map(c=> c && c.v!=null ? c.v : '')); return [cols, ...rows]; }
+    function gvizToValues(g){ const cols=(g.table?.cols||[]).map(c=>(c.label||c.id||'').trim()); const rows=(g.table?.rows||[]).map(r=>(r.c||[]).map(c=> c && c.v!=null ? c.v : '')); return [cols, ...rows]; }
+    function hasValue(v){ return !(v==null || (typeof v==='string' && v.trim()==='')); }
+    function excelSerialToDate(n){ const ms=(Number(n)-25569)*86400000; const d=new Date(ms); return isNaN(d)?null:d; }
+    function parseMaybeDate(v){ if(typeof v==='string'){ const m=v.match(/^Date\((\d+),\s*(\d+),\s*(\d+)/); if(m){ const d=new Date(+m[1],+m[2],+m[3]); if(!isNaN(d)) return d; } const d1=new Date(v); if(!isNaN(d1)) return d1; } if(v&&typeof v==='object'&&v.year!=null){ const d2=new Date(v.year,v.month||0,v.day||1); if(!isNaN(d2)) return d2; } if(typeof v==='number'){ return excelSerialToDate(v); } return null; }
+    function fmtDateCell(v){ const d=parseMaybeDate(v); return d? d.toISOString().slice(0,10) : (v==null? '': String(v)); }
 
-    function formatMaybeDate(v){ const d=new Date(v); return isNaN(d)? (v==null?'':String(v)) : d.toISOString().slice(0,10); }
-    function findLastRowByColA(values){ if(!values || values.length<2) return {headers:values?.[0]||[], row:null, index:0}; const headers=values[0]; for(let i=values.length-1;i>=1;i--){ const row=values[i]||[]; if(row[0]!=='' && row[0]!=null) return { headers,row,index:i }; } return { headers,row:null,index:0 }; }
+    function findLastRowByColA(values){ if(!values || values.length<2) return { headers: values?.[0]||[], row:null, index:0 }; const headers=values[0]; for(let i=values.length-1;i>=1;i--){ const row=values[i]||[]; if(hasValue(row[0])) return { headers,row,index:i }; } return { headers,row:null,index:0 }; }
+    function renderLast(headers,row,index){ $('lastDate').textContent=row? fmtDateCell(row[0]):'None'; $('lastITD').textContent=row? (row[1]??''):''; $('lastProd').textContent=row? (row[2]??''):''; $('rowMeta').textContent = row? `Row ${index}` : 'No rows yet'; }
 
-    function renderLast({headers,row,index}){
-      $('lastDate').textContent = row? formatMaybeDate(row[0]) : 'None';
-      $('lastITD').textContent  = row? (row[1] ?? '') : '';
-      $('lastProd').textContent = row? (row[2] ?? '') : '';
-      $('rowMeta').textContent = row? `Row ${index}` : 'No prior rows with a value in Column A';
-    }
+    async function loadLast(){ const id=$('sheetId').value.trim(); const name=$('sheetName').value.trim(); $('sheetLink').href=`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`; try{ let values; if(accessToken){ // Private mode read via Sheets API
+            const enc=encodeURIComponent(`${name}!A1:Z10000`);
+            const url=`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${enc}?majorDimension=ROWS`;
+            const res=await fetch(url,{ headers:{ Authorization:`Bearer ${accessToken}` }});
+            if(!res.ok) throw new Error(`Sheets API ${res.status}`);
+            const j=await res.json(); values=j.values||[]; diag('Loaded via Sheets API');
+          } else { const res=await fetch(buildGvizUrl(id,name)); const txt=await res.text(); const g=parseGviz(txt); values=gvizToValues(g); diag('Loaded via GViz'); }
+          const {headers,row,index}=findLastRowByColA(values); renderLast(headers,row,index); diag(`Rows: ${Math.max(0,(values||[]).length-1)} Cols: ${values[0]?values[0].length:0}`);
+        } catch(e){ diag('Load failed: '+e.message); alert('Load failed: '+e.message); console.error(e); } }
 
-    async function loadLast(){
-      $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=0`;
-      try{
-        const res = await fetch(buildGvizUrl(SHEET_ID, SHEET_NAME));
-        const txt = await res.text();
-        const g = parseGviz(txt);
-        const values = gvizToValues(g);
-        const last = findLastRowByColA(values);
-        renderLast(last);
-        diag(`Loaded ${Math.max(0,(values||[]).length-1)} rows.`);
-      }catch(e){ diag('Load failed: ' + e.message); alert('Load failed: ' + e.message); console.error(e); }
-    }
+    // ===== Append via backend (no browser sign in required) =====
+    async function appendViaServer(row){ const endpoint=readShared(ENDPOINT_KEYS) || $('appendUrl').value.trim(); const secret=readShared(SECRET_KEYS) || $('appendSecret').value.trim(); if(!endpoint) throw new Error('No append endpoint configured.'); const payload={ spreadsheetId: $('sheetId').value.trim()||SHEET_ID_DEFAULT, sheetName: $('sheetName').value.trim()||SHEET_NAME_DEFAULT, row, secret, op:'appendAtFirstEmptyA' }; const res=await fetch(endpoint,{ method:'POST', mode:'cors', credentials:'omit', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); const text=await res.text(); let data=null; try{ data=text?JSON.parse(text):null; }catch{} if(!res.ok){ throw new Error(`Server ${res.status}. Body: ${text || '[no body]'}`); } return data || { ok:true }; }
 
-    // ===== Append via backend (uses same endpoint as data.html) =====
-    async function appendViaServer(row){
-      const endpoint = readShared(ENDPOINT_KEYS);
-      const secret = readShared(SECRET_KEYS);
-      if(!endpoint) throw new Error('No append endpoint configured. Open data.html or set it below and Save.');
-      const payload = { spreadsheetId: SHEET_ID, sheetName: SHEET_NAME, row, secret, op: 'appendAtFirstEmptyA' };
-      let res, text;
-      try{
-        res = await fetch(endpoint, { method:'POST', mode:'cors', credentials:'omit', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-      }catch(err){ throw new Error('Network or CORS error: ' + err.message); }
-      try{ text = await res.text(); }catch{ text = ''; }
-      let data = null; try{ data = text ? JSON.parse(text) : null; }catch{}
-      if(!res.ok){ throw new Error(`Server append failed ${res.status}. Body: ${text || '[no body]'}`); }
-      return data || { ok:true };
-    }
+    async function handleAppend(){ const date=$('inDate').value.trim(); const itd=$('inITD').value.trim(); const prod=$('inProd').value.trim(); const status=$('status'); if(!date||itd===''||prod===''){ status.textContent='Fill all three fields'; status.className='text-sm bad'; return; } status.textContent='Appending...'; status.className='text-sm'; try{ const row=[date, Number(itd), Number(prod)]; await appendViaServer(row); status.textContent='Saved'; status.className='text-sm ok'; $('inDate').value=todayISO(); $('inITD').value=''; $('inProd').value=''; await loadLast(); } catch(e){ status.textContent='Append failed: '+e.message; status.className='text-sm bad'; diag('Append failed: '+e.message); } }
 
-    async function handleAppend(){
-      const date = $('inDate').value.trim();
-      const itd  = $('inITD').value.trim();
-      const prod = $('inProd').value.trim();
-      const status = $('status');
-      if(!date || itd==='' || prod===''){ status.textContent='Fill all three fields'; status.className='text-sm bad'; return; }
-      status.textContent='Appending…'; status.className='text-sm';
-      try{
-        const row=[date, Number(itd), Number(prod)];
-        await appendViaServer(row);
-        status.textContent='Saved'; status.className='text-sm ok';
-        $('inDate').value = todayISO(); $('inITD').value=''; $('inProd').value='';
-        await loadLast();
-      }catch(e){ status.textContent='Append failed: ' + e.message; status.className='text-sm bad'; diag('Append failed: ' + e.message); }
-    }
+    // ===== Config UI and quick setup =====
+    function loadCfgUI(){ $('appendUrl').value = readShared(ENDPOINT_KEYS); $('appendSecret').value = readShared(SECRET_KEYS); $('sheetId').value = $('sheetId').value || SHEET_ID_DEFAULT; $('sheetName').value = $('sheetName').value || SHEET_NAME_DEFAULT; }
+    function saveCfg(){ writeShared(ENDPOINT_KEYS, $('appendUrl').value.trim()); writeShared(SECRET_KEYS, $('appendSecret').value.trim()); $('cfgStatus').textContent='Saved'; setTimeout(()=> $('cfgStatus').textContent='', 1200); }
+    function hydrateFromQuery(){ const q=new URLSearchParams(location.search); const ep=q.get('append'); const sec=q.get('secret'); if(ep){ writeShared(ENDPOINT_KEYS, ep); $('appendUrl').value=ep; } if(sec){ writeShared(SECRET_KEYS, sec); $('appendSecret').value=sec; } }
 
-    // ===== Config UI =====
-    function loadCfgUI(){ $('appendUrl').value = readShared(ENDPOINT_KEYS); $('appendSecret').value = readShared(SECRET_KEYS); }
-    function saveCfg(){ writeShared(ENDPOINT_KEYS, $('appendUrl').value.trim()); writeShared(SECRET_KEYS, $('appendSecret').value.trim()); $('cfgStatus').textContent='Saved'; setTimeout(()=>$('cfgStatus').textContent='', 1200); }
+    // ===== OAuth init (optional) =====
+    function updateModeChip(){ $('whoAmI').textContent = accessToken ? 'Private mode' : 'Public mode'; }
 
-    // Quick setup via URL: ?append=...&secret=...
-    function hydrateFromQuery(){ const q=new URLSearchParams(location.search); const ep=q.get('append'); const sec=q.get('secret'); if(ep){ writeShared(ENDPOINT_KEYS, ep); } if(sec){ writeShared(SECRET_KEYS, sec); } }
-
-    // ===== Events and boot =====
     window.addEventListener('load', ()=>{
       $('inDate').value = todayISO();
       hydrateFromQuery();
@@ -187,6 +140,21 @@
       $('refreshBtn').addEventListener('click', loadLast);
       $('appendBtn').addEventListener('click', handleAppend);
       loadLast();
+
+      if (window.google && google.accounts && google.accounts.oauth2){
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SHEETS_SCOPE,
+          callback: (resp) => {
+            if (resp && resp.access_token){ accessToken = resp.access_token; updateModeChip(); loadLast(); }
+          }
+        });
+      }
+      document.getElementById('signInBtn').addEventListener('click', ()=>{
+        if (!tokenClient){ alert('Google Identity not ready yet.'); return; }
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      });
+      updateModeChip();
     });
   </script>
 </body>

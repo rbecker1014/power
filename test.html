@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Data Entry — Solar</title>
+  <title>Data Entry — OAuth Sheets API</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://accounts.google.com/gsi/client" async defer onload="window.__gisLoaded && window.__gisLoaded()"></script>
   <style>
@@ -84,40 +84,33 @@
   <script>
   'use strict';
 
-  // OAuth config
+  // OAuth
   const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
   const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-
   let accessToken = null;
   let tokenClient = null;
 
   // Helpers
   const $ = (id)=>document.getElementById(id);
+  const log = (m)=>{ const d=$('diag'); d.textContent += m + "\n"; };
   function todayLocalYMD(){
     const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,'0');
-    const day = String(d.getDate()).padStart(2,'0');
-    return `${y}-${m}-${day}`;
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
-  const log = (m)=>{ const d=$('diag'); d.textContent += m + "\n"; };
-
-  // Robust numeric parser
   function toNumber(v){
     if (v == null) return NaN;
     if (typeof v === 'number') return v;
     if (typeof v === 'string'){
       let s = v.trim();
       if (!s) return NaN;
-      s = s.replace(/[, ]+/g,'');       // remove commas and spaces
-      s = s.replace(/[^0-9.+-Ee]/g,''); // strip symbols like kWh or $
+      s = s.replace(/[, ]+/g,'').replace(/[^0-9.+-Ee]/g,'');
       const n = Number(s);
       return Number.isFinite(n) ? n : NaN;
     }
     return NaN;
   }
 
-  // Sheets API helpers
+  // Sheets API calls
   async function sheetsGet(rangeA1){
     const id = $('sheetId').value.trim();
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1)}?majorDimension=ROWS`;
@@ -127,19 +120,20 @@
     return j.values || [];
   }
 
-  async function sheetsUpdate(rangeA1, values2d){
+  // Use the APPEND endpoint to avoid row math errors and never overwrite
+  async function sheetsAppend(rangeA1ColsOnly, values2d){
     const id = $('sheetId').value.trim();
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1)}?valueInputOption=USER_ENTERED`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1ColsOnly)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
     const res = await fetch(url, {
-      method: 'PUT',
+      method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: values2d })
+      body: JSON.stringify({ majorDimension: 'ROWS', values: values2d })
     });
-    if (!res.ok) throw new Error(`Sheets UPDATE ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new Error(`Sheets APPEND ${res.status}: ${await res.text()}`);
     return res.json();
   }
 
-  // Finders
+  // Find last non-empty A for display
   function findLastRowByA(values){
     if (!values || values.length < 2) return { headers: values?.[0]||[], row: null, index: 0 };
     const headers = values[0];
@@ -152,28 +146,13 @@
   }
 
   // Date helpers in local time
-  function dateOnlyFromAny(x){
-    const d = new Date(x);
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  }
-  function addDays(d, n){
-    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    x.setDate(x.getDate() + n);
-    return x;
-  }
-  function ymd(d){
-    const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,'0');
-    const day = String(d.getDate()).padStart(2,'0');
-    return `${y}-${m}-${day}`;
-  }
-  function daysBetween(a, b){ // b - a
-    const ms = dateOnlyFromAny(b) - dateOnlyFromAny(a);
-    return Math.round(ms / 86400000);
-  }
+  function dOnly(x){ const d=new Date(x); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  function addDays(d, n){ const x=new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate()+n); return x; }
+  function ymd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+  function daysBetween(a,b){ return Math.round((dOnly(b) - dOnly(a))/86400000); }
 
-  // Build rows to fill gaps and final day. Column B ITD is numeric except header.
-  // Returns { startRow1Based, rowsToWrite }
+  // Build rows to fill gaps and final day, based on your rule
+  // Returns only the rows to write - we now always use append
   function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
     const last = findLastRowByA(valuesABC);
     if (!last.row) throw new Error('No last row found. Ensure there is a header row and at least one data row.');
@@ -181,20 +160,15 @@
     const lastITD = toNumber(last.row[1]);
     if (!Number.isFinite(lastITD)) throw new Error('Last ITD missing or not numeric in Column B.');
 
-    const lastDate = dateOnlyFromAny(last.row[0]);
-    const inputDate = dateOnlyFromAny(inputDateStr);
+    const lastDate = dOnly(last.row[0]);
+    const inputDate = dOnly(inputDateStr);
 
     const gapDays = daysBetween(lastDate, inputDate); // input - last
     if (gapDays < 1) throw new Error('Input date must be after the last recorded date.');
 
-    const startRow1Based = last.index + 1; // next row after last non empty A
-
     // Exactly next day: one row
     if (gapDays === 1){
-      return {
-        startRow1Based,
-        rowsToWrite: [[ ymd(inputDate), Number(inputITD), Number(inputProd) ]]
-      };
+      return [[ ymd(inputDate), Number(inputITD), Number(inputProd) ]];
     }
 
     // Missing days exist
@@ -221,10 +195,8 @@
       allocated += prod;
     }
 
-    // Final input day
     rows.push([ ymd(inputDate), Number(inputITD), Number(inputProd) ]);
-
-    return { startRow1Based, rowsToWrite: rows };
+    return rows;
   }
 
   // Render last row table
@@ -281,15 +253,12 @@
     status.textContent = 'Calculating and writing…'; status.className='text-sm';
     try{
       const valuesABC = await sheetsGet(`${name}!A1:C10000`);
-      const plan = buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd);
+      const rowsToWrite = buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd);
 
-      // Write contiguous block starting at the next row after last non empty A
-      const start = plan.startRow1Based;                 // first empty row
-      const end = start + plan.rowsToWrite.length - 1;
-      const a1 = `${name}!A${start}:C${end}`;
-      await sheetsUpdate(a1, plan.rowsToWrite);
+      // Append all rows in one call - never overwrites
+      await sheetsAppend(`${name}!A:C`, rowsToWrite);
 
-      status.textContent = `Saved ${plan.rowsToWrite.length} row(s) at A${start}:C${end}`; status.className='text-sm ok';
+      status.textContent = `Saved ${rowsToWrite.length} row(s)`; status.className='text-sm ok';
       document.getElementById('inDate').value = todayLocalYMD();
       document.getElementById('inITD').value=''; document.getElementById('inProd').value='';
       await loadLast();
@@ -340,7 +309,6 @@
     document.getElementById('appendBtn').addEventListener('click', appendRow);
     document.getElementById('signInBtn').addEventListener('click', requestSignIn);
 
-    // Fallback poll in case the GIS script loads late
     const t = setInterval(()=>{
       if (window.google && google.accounts && google.accounts.oauth2){
         clearInterval(t);

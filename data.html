@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Data Sheet Viewer – All Rows</title>
+  <title>Data Sheet Viewer – Date formatted</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Identity Services (OAuth 2.0 in-browser) -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     .card { background: #fff; border-radius: 1rem; box-shadow: 0 8px 16px rgba(0,0,0,.06); padding: 1rem; }
@@ -19,7 +18,7 @@
     <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold">Data Sheet Viewer</h1>
-        <p class="text-gray-600 mt-1">Shows every row from the <span class="font-semibold">Data</span> sheet using the same Sheets API/OAuth as your dashboard.</p>
+        <p class="text-gray-600 mt-1">Shows every row from the <span class="font-semibold">Data</span> sheet. Column A is formatted as a date.</p>
       </div>
       <div class="flex items-center gap-3">
         <a href="index.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Back to dashboard</a>
@@ -63,9 +62,9 @@
   </div>
 
   <script>
-    // ===== Config (same API + OAuth as index) =====
+    // ===== Config (uses the same OAuth client as your dashboard) =====
     const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
-    const SHEETS_SCOPE   = "https://www.googleapis.com/auth/spreadsheets"; // read-write scope works for read too
+    const SHEETS_SCOPE   = "https://www.googleapis.com/auth/spreadsheets"; // read-write also works for read
     let accessToken = null;
     let tokenClient = null;
 
@@ -87,6 +86,36 @@
       return [cols, ...rows];
     }
 
+    function excelSerialToDate(n){
+      // Excel serial days to JS Date, 25569 is Excel epoch for 1970-01-01
+      const ms = (Number(n) - 25569) * 86400000;
+      const d = new Date(ms);
+      return isNaN(d) ? null : d;
+    }
+    function parseMaybeDate(v){
+      // 1) GViz sometimes returns strings like "Date(2025, 6, 15)" where month is 0 based
+      if (typeof v === 'string'){
+        const m = v.match(/^Date\((\d+),\s*(\d+),\s*(\d+)(?:,.*)?\)$/);
+        if (m){ const y=+m[1], mo=+m[2], da=+m[3]; const d=new Date(y, mo, da); if (!isNaN(d)) return d; }
+        // Common ISO or locale strings
+        const d1 = new Date(v);
+        if (!isNaN(d1)) return d1;
+      }
+      // 2) Object with year, month, day
+      if (v && typeof v === 'object' && v.year != null){
+        const d2 = new Date(v.year, v.month || 0, v.day || 1);
+        if (!isNaN(d2)) return d2;
+      }
+      // 3) Numeric Excel serial
+      if (typeof v === 'number'){ const d3 = excelSerialToDate(v); if (d3) return d3; }
+      return null;
+    }
+    function fmtDateCell(v){
+      const d = parseMaybeDate(v);
+      if (!d) return v == null ? '' : String(v);
+      return d.toISOString().slice(0,10); // YYYY-MM-DD
+    }
+
     function valuesToTable(values){
       const table = document.getElementById('sheetTable');
       const thead = table.querySelector('thead');
@@ -106,8 +135,9 @@
         for (let c=0; c<headers.length; c++){
           const td=document.createElement('td');
           td.className='p-2 whitespace-nowrap';
-          const v = row[c] !== undefined ? row[c] : '';
-          td.textContent = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+          const raw = row[c];
+          const v = (c === 0) ? fmtDateCell(raw) : (raw == null ? '' : (typeof raw === 'object' ? JSON.stringify(raw) : String(raw)));
+          td.textContent = v;
           tr.appendChild(td);
         }
         tbody.appendChild(tr);
@@ -174,7 +204,6 @@
 
     // ===== Events and OAuth init =====
     window.addEventListener('load', () => {
-      // GIS init
       if (window.google && google.accounts && google.accounts.oauth2){
         tokenClient = google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
@@ -195,8 +224,8 @@
       });
       document.getElementById('refreshBtn').addEventListener('click', loadAll);
       document.getElementById('exportBtn').addEventListener('click', () => {
+        // Build CSV from the DOM so Column A is already formatted as YYYY-MM-DD
         const table = document.getElementById('sheetTable');
-        // Recreate values from the DOM for export (simple and robust)
         const values = [];
         const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent);
         if (headers.length) values.push(headers);

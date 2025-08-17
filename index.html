@@ -505,7 +505,6 @@
 
       document.getElementById("testOutput").textContent = out.join("\n"); var pass=out.filter(function(x){ return x.indexOf("✅")===0; }).length; var total=out.length; document.getElementById("testSummary").textContent = pass + "/" + total + " tests passed";
     }
-
     // Events
     document.getElementById("applyBtn").addEventListener("click", applyFilters);
     document.getElementById("clearBtn").addEventListener("click", function(){ document.getElementById("startDate").value=""; document.getElementById("endDate").value=""; renderAll(window.__rows||[]); });

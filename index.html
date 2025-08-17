@@ -39,8 +39,8 @@
       </div>
     </header>
 
-    <!-- Data Source Config -->
-    <section class="card">
+    <!-- Data Source Config (hidden as requested) -->
+    <section class="card hidden" aria-hidden="true">
       <h2 class="text-lg font-semibold mb-3">Data Source</h2>
       <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
         <label class="block">
@@ -90,11 +90,11 @@
       <div class="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
         <label class="block">
           <span class="text-sm text-gray-700">Start date</span>
-          <input id="startDate" type="date" class="input" />
+          <input id="startDate" type="date" class="input" value="2025-06-01" />
         </label>
         <label class="block">
           <span class="text-sm text-gray-700">End date</span>
-          <input id="endDate" type="date" class="input" />
+          <input id="endDate" type="date" class="input" value="2025-12-31" />
         </label>
         <label class="block">
           <span class="text-sm text-gray-700">Import rate $/kWh</span>

@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Data Entry — OAuth Sheets API</title>
+  <title>Data Entry — Solar</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client" async defer onload="window.__gisLoaded && window.__gisLoaded()"></script>
   <style>
     .card{background:#fff;border-radius:1rem;box-shadow:0 8px 16px rgba(0,0,0,.06);padding:1rem}
@@ -72,7 +71,7 @@
         <button id="appendBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" disabled>Append Row</button>
         <span id="status" class="text-sm"></span>
       </div>
-      <p class="text-xs text-gray-500 mt-2">Writes to the next row after the last non empty value in Column A.</p>
+      <p class="text-xs text-gray-500 mt-2">If your date skips days, missing dates are auto-filled with extrapolated ITD and Prod so the cumulative matches your input ITD.</p>
     </section>
 
     <!-- Diagnostics -->
@@ -85,23 +84,62 @@
   <script>
   'use strict';
 
-  // OAuth config
+  // OAuth
   const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
   const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-
   let accessToken = null;
   let tokenClient = null;
 
-  // Helpers
+  // DOM helpers
   const $ = (id)=>document.getElementById(id);
-  const todayISO = ()=> new Date().toISOString().slice(0,10);
   const log = (m)=>{ const d=$('diag'); d.textContent += m + "\n"; };
-
-  function setSignedInUI(isIn){
-    $('whoAmI').textContent = isIn ? 'Signed in' : 'Signed out';
-    $('appendBtn').disabled = !isIn;
+  function todayLocalYMD(){
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
+  // Numbers
+  function toNumber(v){
+    if (v == null) return NaN;
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string'){
+      let s = v.trim();
+      if (!s) return NaN;
+      s = s.replace(/[, ]+/g,'').replace(/[^0-9.+-Ee]/g,'');
+      const n = Number(s);
+      return Number.isFinite(n) ? n : NaN;
+    }
+    return NaN;
+  }
+
+  // Date parsing - all LOCAL calendar math without new Date('YYYY-MM-DD')
+  function parseISOYMD(s){
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s||'').trim());
+    return m ? { y:+m[1], m:+m[2], d:+m[3] } : null;
+  }
+  function parseMDY(s){
+    const m = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/.exec(String(s||'').trim());
+    return m ? { y:+m[3], m:+m[1], d:+m[2] } : null;
+  }
+  function parseCellDateToParts(v){
+    if (typeof v === 'string'){
+      return parseISOYMD(v) || parseMDY(v);
+    }
+    return null;
+  }
+  function ymdToString(p){ return `${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`; }
+  function addDaysParts(p, n){
+    const dt = new Date(Date.UTC(p.y, p.m-1, p.d));
+    dt.setUTCDate(dt.getUTCDate() + n);
+    return { y: dt.getUTCFullYear(), m: dt.getUTCMonth()+1, d: dt.getUTCDate() };
+  }
+  function daysBetweenParts(a, b){ // b - a in days
+    const au = Date.UTC(a.y, a.m-1, a.d);
+    const bu = Date.UTC(b.y, b.m-1, b.d);
+    return Math.round((bu - au) / 86400000);
+  }
+
+  // Sheets API
   async function sheetsGet(rangeA1){
     const id = $('sheetId').value.trim();
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1)}?majorDimension=ROWS`;
@@ -110,20 +148,19 @@
     const j = await res.json();
     return j.values || [];
   }
-
-  async function sheetsUpdate(rangeA1, values2d){
+  async function sheetsAppend(rangeA1ColsOnly, values2d){
     const id = $('sheetId').value.trim();
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1)}?valueInputOption=USER_ENTERED`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1ColsOnly)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
     const res = await fetch(url, {
-      method: 'PUT',
+      method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: values2d })
+      body: JSON.stringify({ majorDimension: 'ROWS', values: values2d })
     });
-    if (!res.ok) throw new Error(`Sheets UPDATE ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new Error(`Sheets APPEND ${res.status}: ${await res.text()}`);
     return res.json();
   }
 
-  // Finder for display: last non empty A
+  // Find last non-empty A for display
   function findLastRowByA(values){
     if (!values || values.length < 2) return { headers: values?.[0]||[], row: null, index: 0 };
     const headers = values[0];
@@ -135,45 +172,89 @@
     return { headers, row: null, index: 0 };
   }
 
-  // Finder for writing: next row after last non empty A
-  function findNextRowAfterLastNonEmptyA(values){
-    // values contains A1:A... or A1:Z..., with headers at row 1
-    if (!values || values.length < 2) return 2; // write row 2 if only header
-    let last = 1; // header row
-    for (let i = 2; i <= values.length; i++){
-      const row = values[i - 1] || [];
-      const a = row[0];
-      if (a != null && String(a).trim() !== '') last = i;
+  // Build rows for missing dates plus final input date
+  function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
+    const last = findLastRowByA(valuesABC);
+    if (!last.row) throw new Error('No last row found. Ensure there is a header row and at least one data row.');
+
+    const lastITD = toNumber(last.row[1]);
+    if (!Number.isFinite(lastITD)) throw new Error('Last ITD missing or not numeric in Column B.');
+
+    const lastParts = parseCellDateToParts(last.row[0]);
+    if (!lastParts) throw new Error('Could not parse last date. Please ensure Column A is a recognizable date.');
+
+    const inputParts = parseISOYMD(inputDateStr);
+    if (!inputParts) throw new Error('Input date must be YYYY-MM-DD.');
+
+    const gapDays = daysBetweenParts(lastParts, inputParts); // input - last
+    if (gapDays < 1) throw new Error('Input date must be after the last recorded date.');
+
+    // Exactly next day: one row
+    if (gapDays === 1){
+      return [[ ymdToString(inputParts), Number(inputITD), Number(inputProd) ]];
     }
-    return last + 1;
+
+    // Missing days exist
+    const missingCount = gapDays - 1;
+    const deltaITD = Number(inputITD) - lastITD;
+    const missingSum = deltaITD - Number(inputProd);
+    if (!Number.isFinite(deltaITD) || !Number.isFinite(missingSum)){
+      throw new Error('Input ITD or Prod is not a valid number.');
+    }
+    if (missingSum < -1e-9){
+      throw new Error('Numbers inconsistent: input ITD is less than last ITD plus input Prod.');
+    }
+
+    const even = missingCount > 0 ? missingSum / missingCount : 0;
+    const rows = [];
+    let runningITD = lastITD;
+    let allocated = 0;
+
+    for (let i = 1; i <= missingCount; i++){
+      let prod = i < missingCount ? even : (missingSum - allocated);
+      if (Math.abs(prod) < 1e-12) prod = 0;
+      runningITD += prod;
+      const parts = addDaysParts(lastParts, i);
+      rows.push([ ymdToString(parts), Number(runningITD), Number(prod) ]);
+      allocated += prod;
+    }
+
+    // Final input day must be the actual input date
+    rows.push([ ymdToString(inputParts), Number(inputITD), Number(inputProd) ]);
+    return rows;
   }
 
+  // Render last row
   function renderLast(headers, row, index){
-    const thead = $('lastHead'), tbody = $('lastBody');
+    const thead = document.getElementById('lastHead');
+    const tbody = document.getElementById('lastBody');
     thead.innerHTML = ''; tbody.innerHTML = '';
-    headers.forEach(h => { const th=document.createElement('th'); th.className='p-2 text-left'; th.textContent=String(h||''); thead.appendChild(th); });
+    headers.forEach(h => {
+      const th=document.createElement('th');
+      th.className='p-2 text-left'; th.textContent=String(h||''); thead.appendChild(th);
+    });
     if (row){
       for (let c=0;c<headers.length;c++){
         const td=document.createElement('td'); td.className='p-2 whitespace-nowrap';
         const raw=row[c];
         let v = raw == null ? '' : String(raw);
-        const maybe = new Date(v);
-        if (c === 0 && !isNaN(maybe)) v = maybe.toISOString().slice(0,10);
+        const parts = c===0 ? parseCellDateToParts(v) : null;
+        if (parts) v = ymdToString(parts);
         td.textContent = v;
         tbody.appendChild(td);
       }
-      $('rowMeta').textContent = `Last data row index (1-based) by Column A: ${index}`;
+      document.getElementById('rowMeta').textContent = `Last data row index by Column A: ${index}`;
     } else {
       const td = document.createElement('td'); td.className='p-2 text-sm text-gray-500'; td.colSpan=headers.length||1; td.textContent='No data rows yet'; tbody.appendChild(td);
-      $('rowMeta').textContent = '';
+      document.getElementById('rowMeta').textContent = '';
     }
   }
 
   async function loadLast(){
-    const name = $('sheetName').value.trim();
-    $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${$('sheetId').value.trim()}/edit#gid=0`;
+    const name = document.getElementById('sheetName').value.trim();
+    document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${document.getElementById('sheetId').value.trim()}/edit#gid=0`;
     try{
-      const values = await sheetsGet(`${name}!A1:Z10000`);
+      const values = await sheetsGet(`${name}!A1:C10000`);
       const r = findLastRowByA(values);
       renderLast(r.headers, r.row, r.index);
       log(`Loaded ${Math.max(0,(values||[]).length-1)} rows.`);
@@ -184,26 +265,26 @@
   }
 
   async function appendRow(){
-    const name = $('sheetName').value.trim();
-    const date = $('inDate').value.trim();
-    const itd  = $('inITD').value.trim();
-    const prod = $('inProd').value.trim();
-    const status = $('status');
+    const name = document.getElementById('sheetName').value.trim();
+    const inputDateStr = document.getElementById('inDate').value.trim(); // YYYY-MM-DD
+    const inputITD = toNumber(document.getElementById('inITD').value.trim());
+    const inputProd = toNumber(document.getElementById('inProd').value.trim());
+    const status = document.getElementById('status');
 
-    if (!date || itd === '' || prod === ''){
-      status.textContent = 'Fill all three fields'; status.className='text-sm bad'; return;
+    if (!inputDateStr || !Number.isFinite(inputITD) || !Number.isFinite(inputProd)){
+      status.textContent = 'Enter a valid Date, ITD, and Prod'; status.className='text-sm bad'; return;
     }
 
-    status.textContent = 'Appending…'; status.className='text-sm';
+    status.textContent = 'Calculating and writing…'; status.className='text-sm';
     try{
-      // Read only column A for speed
-      const colAValues = await sheetsGet(`${name}!A1:A10000`);
-      const target = findNextRowAfterLastNonEmptyA(colAValues);
-      const a1 = `${name}!A${target}:C${target}`;
-      await sheetsUpdate(a1, [[date, Number(itd), Number(prod)]]);
-      status.textContent = `Row saved at A${target}:C${target}`; status.className='text-sm ok';
+      const valuesABC = await sheetsGet(`${name}!A1:C10000`);
+      const rowsToWrite = buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd);
 
-      $('inDate').value = todayISO(); $('inITD').value=''; $('inProd').value='';
+      await sheetsAppend(`${name}!A:C`, rowsToWrite);
+
+      status.textContent = `Saved ${rowsToWrite.length} row(s)`; status.className='text-sm ok';
+      document.getElementById('inDate').value = todayLocalYMD();
+      document.getElementById('inITD').value=''; document.getElementById('inProd').value='';
       await loadLast();
     } catch(e){
       status.textContent = 'Append failed: ' + e.message; status.className='text-sm bad';
@@ -211,7 +292,7 @@
     }
   }
 
-  // GIS init with onload hook and a fallback poll
+  // GIS init
   window.__gisLoaded = function(){
     try{
       tokenClient = google.accounts.oauth2.initTokenClient({
@@ -220,7 +301,8 @@
         callback: (resp) => {
           if (resp && resp.access_token){
             accessToken = resp.access_token;
-            setSignedInUI(true);
+            document.getElementById('whoAmI').textContent = 'Signed in';
+            document.getElementById('appendBtn').disabled = false;
             loadLast();
           }
         }
@@ -241,19 +323,16 @@
   // Wire up UI
   window.addEventListener('DOMContentLoaded', ()=>{
     log('JS ready');
-    $('inDate').value = todayISO();
-    $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${$('sheetId').value.trim()}/edit#gid=0`;
+    document.getElementById('inDate').value = todayLocalYMD();
+    document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${document.getElementById('sheetId').value.trim()}/edit#gid=0`;
 
-    $('refreshBtn').addEventListener('click', ()=>{
+    document.getElementById('refreshBtn').addEventListener('click', ()=>{
       if (!accessToken){ alert('Sign in first to read via Sheets API.'); return; }
       loadLast();
     });
-    $('appendBtn').addEventListener('click', appendRow);
-    $('signInBtn').addEventListener('click', requestSignIn);
+    document.getElementById('appendBtn').addEventListener('click', appendRow);
+    document.getElementById('signInBtn').addEventListener('click', requestSignIn);
 
-    setSignedInUI(false);
-
-    // Fallback poll in case script onload is blocked
     const t = setInterval(()=>{
       if (window.google && google.accounts && google.accounts.oauth2){
         clearInterval(t);

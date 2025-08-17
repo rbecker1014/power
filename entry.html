@@ -3,259 +3,189 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Data Entry — Shared endpoint with data.html</title>
+  <title>Entry • Last Row and Append</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .card{background:#fff;border-radius:1rem;box-shadow:0 8px 16px rgba(0,0,0,.06);padding:1rem}
     .input{border:1px solid #e5e7eb;border-radius:.5rem;padding:.5rem .75rem;width:100%}
-    .chip{display:inline-block;border-radius:9999px;padding:.15rem .55rem;background:#f3f4f6;font-size:.75rem}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
-    thead th{position:sticky;top:0;background:#fff;z-index:1}
-    .ok{color:#065f46}
-    .bad{color:#991b1b}
-    .banner{position:sticky;top:0;z-index:40}
+    .ok{color:#065f46}.bad{color:#991b1b}
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
-  <div id="needCfg" class="hidden banner bg-amber-100 text-amber-900 border border-amber-300 p-3">
-    <div class="max-w-3xl mx-auto flex items-center justify-between gap-3">
-      <span><strong>Append endpoint not configured.</strong> Open Settings, paste your endpoint URL, click Save.</span>
-      <a href="#settings" class="px-3 py-1 rounded bg-amber-900 text-white">Open Settings</a>
-    </div>
-  </div>
-
-  <div class="max-w-3xl mx-auto p-6 space-y-6">
-    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-      <div>
-        <h1 class="text-2xl md:text-3xl font-bold">Data Entry</h1>
-        <p class="text-gray-600 mt-1">Shares the same backend endpoint as <span class="font-semibold">data.html</span>. Reads last row by Column A, appends new rows without browser sign in.</p>
-      </div>
-      <div class="flex items-center gap-3 flex-wrap">
-        <a href="index.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Dashboard</a>
-        <a href="data.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">All Rows</a>
-        <span class="chip">Append mode: Server endpoint</span>
-      </div>
+  <div class="max-w-xl mx-auto p-6 space-y-6">
+    <header class="flex items-center justify-between">
+      <h1 class="text-2xl font-bold">Sheet Entry</h1>
+      <nav class="flex gap-2 text-sm">
+        <a class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" href="index.html">Dashboard</a>
+        <a class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" href="data.html">All Rows</a>
+      </nav>
     </header>
 
-    <!-- Settings (shared with data.html via localStorage keys) -->
-    <section id="settings" class="card">
-      <h2 class="text-lg font-semibold mb-3">Settings</h2>
-      <div class="grid sm:grid-cols-2 gap-4">
-        <label class="block">
-          <span class="text-sm text-gray-700">Google Sheet ID</span>
-          <input id="sheetId" class="input" value="193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac" />
-        </label>
-        <label class="block">
-          <span class="text-sm text-gray-700">Sheet name</span>
-          <input id="sheetName" class="input" value="Data" />
-        </label>
-        <label class="block sm:col-span-2">
-          <span class="text-sm text-gray-700">Append endpoint URL (shared)</span>
-          <input id="appendUrl" class="input" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" />
-          <p class="text-xs text-gray-500 mt-1">This value is shared with <code>data.html</code> using common localStorage keys. Endpoint must accept POST JSON { spreadsheetId, sheetName, row, secret }.</p>
-        </label>
-        <label class="block">
-          <span class="text-sm text-gray-700">Shared secret (shared)</span>
-          <input id="appendSecret" class="input" placeholder="optional but recommended" />
-        </label>
-      </div>
-      <div class="flex items-center gap-3 mt-3">
-        <button id="saveCfg" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Save</button>
-        <button id="pingBtn" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200">Check Endpoint</button>
-        <a id="sheetLink" href="#" target="_blank" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
-        <span id="cfgStatus" class="text-sm"></span>
-      </div>
-      <details class="mt-3 text-xs text-gray-600">
-        <summary class="cursor-pointer select-none">Show sample Apps Script endpoint</summary>
-<pre class="mono text-xs bg-gray-50 border border-gray-200 rounded p-3 overflow-auto">/** Deploy: Publish → Deploy as web app → Execute as Me → Anyone with the link */
-function doPost(e){
-  var secret = 'YOUR_SHARED_SECRET';
-  var input = {};
-  try { input = JSON.parse(e.postData && e.postData.contents || '{}'); } catch(err) { input = {}; }
-  if (secret && input.secret && input.secret !== secret) {
-    return ContentService.createTextOutput(JSON.stringify({ ok:false, error:'bad secret' }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-  var ss = SpreadsheetApp.openById(input.spreadsheetId);
-  var sh = ss.getSheetByName(input.sheetName || 'Data');
-  sh.appendRow(input.row || []);
-  return ContentService.createTextOutput(JSON.stringify({ ok:true }))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-function doGet(){ return ContentService.createTextOutput('ok'); }
-</pre>
-      </details>
-      <p class="text-xs text-gray-500 mt-2">Quick setup: open this page with <code>?append=URL&secret=XYZ</code> — values sync to shared storage used by both pages.</p>
-    </section>
-
-    <!-- Last row viewer -->
+    <!-- Last non-empty row in Column A -->
     <section class="card">
-      <h2 class="text-lg font-semibold mb-3">Last row on Data (Column A non empty)</h2>
-      <div class="overflow-auto border border-gray-200 rounded-lg">
-        <table class="min-w-full text-sm">
-          <thead class="bg-gray-100 text-gray-700"><tr id="lastHead"></tr></thead>
-          <tbody><tr id="lastBody"></tr></tbody>
-        </table>
+      <h2 class="text-lg font-semibold mb-3">Last row (Column A not blank)</h2>
+      <div id="lastRowBox" class="text-sm">
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <div class="text-gray-500">Date (A)</div>
+            <div id="lastDate" class="font-medium">—</div>
+          </div>
+          <div>
+            <div class="text-gray-500">ITD Production (B)</div>
+            <div id="lastITD" class="font-medium">—</div>
+          </div>
+          <div>
+            <div class="text-gray-500">Daily Production (C)</div>
+            <div id="lastProd" class="font-medium">—</div>
+          </div>
+        </div>
+        <div id="rowMeta" class="text-xs text-gray-500 mt-2"></div>
       </div>
-      <div id="rowMeta" class="text-xs text-gray-500 mt-2"></div>
     </section>
 
     <!-- Append form -->
     <section class="card">
-      <h2 class="text-lg font-semibold mb-3">Append a new row</h2>
-      <div class="grid md:grid-cols-3 gap-4">
-        <label class="block"><span class="text-sm text-gray-700">Date (Column A)</span><input id="inDate" type="date" class="input" /></label>
-        <label class="block"><span class="text-sm text-gray-700">ITD Production # (Column B)</span><input id="inITD" type="number" step="any" class="input" placeholder="e.g. 12345" /></label>
-        <label class="block"><span class="text-sm text-gray-700">Production (Column C)</span><input id="inProd" type="number" step="any" class="input" placeholder="kWh for the day" /></label>
+      <h2 class="text-lg font-semibold mb-3">Add new row</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <label class="block">
+          <span class="text-sm text-gray-700">Date (A)</span>
+          <input id="inDate" type="date" class="input" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-gray-700">ITD Production (B)</span>
+          <input id="inITD" type="number" step="any" class="input" placeholder="e.g. 12345" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-gray-700">Daily Production (C)</span>
+          <input id="inProd" type="number" step="any" class="input" placeholder="kWh for the day" />
+        </label>
       </div>
       <div class="flex items-center gap-3 mt-4">
-        <button id="appendBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Append Row</button>
+        <button id="appendBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Append</button>
         <button id="refreshBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
         <span id="status" class="text-sm"></span>
       </div>
-      <p class="text-xs text-gray-500 mt-2">Date is sent as YYYY-MM-DD. Your endpoint should use USER_ENTERED so Sheets stores it as a real date.</p>
+    </section>
+
+    <!-- Minimal settings note (reads shared endpoint set on data.html) -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-2">Connection</h2>
+      <p class="text-sm text-gray-600">This page reads using the public GViz endpoint. Writing uses the same backend endpoint as <code>data.html</code>.
+        If it is not set there, you can paste it here for convenience.</p>
+      <div class="grid sm:grid-cols-2 gap-3 mt-2">
+        <label class="block">
+          <span class="text-sm text-gray-700">Append endpoint URL</span>
+          <input id="appendUrl" class="input" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-gray-700">Shared secret</span>
+          <input id="appendSecret" class="input" placeholder="optional" />
+        </label>
+      </div>
+      <div class="flex items-center gap-3 mt-3">
+        <button id="saveCfg" class="px-3 py-2 rounded-lg bg-gray-900 text-white">Save</button>
+        <a id="sheetLink" href="#" target="_blank" class="px-3 py-2 rounded-lg bg-gray-200 hover:bg-gray-300">Open Sheet</a>
+        <span id="cfgStatus" class="text-sm"></span>
+      </div>
     </section>
 
     <section class="card">
       <h2 class="text-lg font-semibold mb-2">Diagnostics</h2>
-      <div id="diag" class="mono text-xs whitespace-pre-wrap"></div>
+      <pre id="diag" class="text-xs text-gray-800 whitespace-pre-wrap"></pre>
     </section>
   </div>
 
   <script>
-    // ===== Small helpers =====
-    const $ = (id)=>document.getElementById(id);
-    const todayISO = ()=> new Date().toISOString().slice(0,10);
-    const diag = (m)=>{ const d=$('diag'); d.textContent += m + "\n"; };
-    const setStatus = (t, ok)=>{ const el=$('status'); el.textContent=t; el.className = 'text-sm ' + (ok? 'ok':'bad'); };
+    // ===== Sheet config (simple, hardcoded id and tab) =====
+    const SHEET_ID = '193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac';
+    const SHEET_NAME = 'Data';
 
-    // ===== Shared storage keys so entry.html and data.html stay in sync =====
+    // ===== Shared storage keys (same as data.html) =====
     const ENDPOINT_KEYS = ['data:endpoint','append:endpoint','api:endpoint','backend:endpoint'];
     const SECRET_KEYS   = ['data:secret','append:secret','api:secret','backend:secret'];
+    const readShared = (keys)=>{ for(const k of keys){ const v=localStorage.getItem(k); if(v) return v; } return ''; };
+    const writeShared = (keys,v)=>{ keys.forEach(k=> v? localStorage.setItem(k,v): localStorage.removeItem(k)); };
 
-    const readShared = (keys)=>{ for(const k of keys){ const v = localStorage.getItem(k); if (v) return v; } return ''; };
-    const writeShared = (keys, value)=>{ keys.forEach(k=>{ if(value) localStorage.setItem(k, value); else localStorage.removeItem(k); }); };
+    // ===== Helpers =====
+    const $ = (id)=>document.getElementById(id);
+    const todayISO = ()=> new Date().toISOString().slice(0,10);
+    const diag = (m)=>{ const d=$('diag'); d.textContent += m + '\n'; };
 
-    function loadCfgUI(){
-      const ep = readShared(ENDPOINT_KEYS);
-      const ss = readShared(SECRET_KEYS);
-      $('appendUrl').value = ep;
-      $('appendSecret').value = ss;
-    }
-    function saveCfg(){
-      const ep = $('appendUrl').value.trim();
-      const ss = $('appendSecret').value.trim();
-      writeShared(ENDPOINT_KEYS, ep);
-      writeShared(SECRET_KEYS, ss);
-      $('cfgStatus').textContent = ep? 'Saved' : 'Saved, but endpoint empty';
-      setTimeout(()=> $('cfgStatus').textContent='', 1500);
-      updateEndpointBanner();
-    }
-
-    // Sync across tabs/pages
-    window.addEventListener('storage', (e)=>{
-      if (ENDPOINT_KEYS.includes(e.key) || SECRET_KEYS.includes(e.key)) {
-        loadCfgUI(); updateEndpointBanner();
-      }
-    });
-
-    // Support quick setup via URL params: ?append=...&secret=...
-    function hydrateFromQuery(){
-      const q = new URLSearchParams(location.search);
-      const append = q.get('append');
-      const secret = q.get('secret');
-      if (append) writeShared(ENDPOINT_KEYS, append);
-      if (secret) writeShared(SECRET_KEYS, secret);
-    }
-
-    function updateEndpointBanner(){
-      const need = $('needCfg');
-      const ep = readShared(ENDPOINT_KEYS);
-      if (!ep) { need.classList.remove('hidden'); $('appendBtn').disabled = false; }
-      else { need.classList.add('hidden'); $('appendBtn').disabled = false; }
-    }
-
-    // ===== Public read via GViz =====
+    function buildGvizUrl(id, sheet){ const p = new URLSearchParams(sheet?{sheet}:{}) ; return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?${p.toString()}`; }
     function sanitizeAntiXSSI(t){ return t.replace(/^\)\]\}'\n/, '').replace(/^\/\*O_o\*\/\n/, ''); }
     function parseGviz(text){ const raw=sanitizeAntiXSSI(text); const m=raw.match(/google\.visualization\.Query\.setResponse\((.*)\);?/s); if(!m) throw new Error('Unexpected GViz format'); return JSON.parse(m[1]); }
-    function gvizToValues(g){ const cols=(g.table?.cols||[]).map(c=>(c.label||c.id||'').trim()); const rows=(g.table?.rows||[]).map(r=>(r.c||[]).map(c=> c && c.v!=null ? c.v : '')); return [cols, ...rows]; }
-    function buildGvizUrl(id, sheet){ const p=new URLSearchParams(sheet?{sheet}:{}) ; return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?${p.toString()}`; }
+    function gvizToValues(g){ const cols=(g.table?.cols||[]).map(c=>(c.label||c.id||'').trim()); const rows=(g.table?.rows||[]).map(r=> (r.c||[]).map(c=> c && c.v!=null ? c.v : '')); return [cols, ...rows]; }
 
-    function hasValue(v){ return !(v==null || (typeof v==='string' && v.trim()==='')); }
-    function fmtMaybeDate(v){ const d=new Date(v); return isNaN(d) ? (v==null?'':String(v)) : d.toISOString().slice(0,10); }
-    function findLastRowByColA(values){ if(!values || values.length<2) return { headers: values?.[0]||[], row:null, index:0 }; const headers=values[0]; for(let i=values.length-1; i>=1; i--){ const row=values[i]||[]; if(hasValue(row[0])) return { headers,row,index:i }; } return { headers,row:null,index:0 }; }
+    function formatMaybeDate(v){ const d=new Date(v); return isNaN(d)? (v==null?'':String(v)) : d.toISOString().slice(0,10); }
+    function findLastRowByColA(values){ if(!values || values.length<2) return {headers:values?.[0]||[], row:null, index:0}; const headers=values[0]; for(let i=values.length-1;i>=1;i--){ const row=values[i]||[]; if(row[0]!=='' && row[0]!=null) return { headers,row,index:i }; } return { headers,row:null,index:0 }; }
 
-    function renderLast(headers,row,index){ const head=$('lastHead'); const body=$('lastBody'); head.innerHTML=''; body.innerHTML=''; headers.forEach(h=>{ const th=document.createElement('th'); th.className='p-2 text-left'; th.textContent=String(h||''); head.appendChild(th); }); if(row){ for(let c=0;c<headers.length;c++){ const td=document.createElement('td'); td.className='p-2 whitespace-nowrap'; const raw=row[c]; const v=(c===0)?fmtMaybeDate(raw):(raw==null?'':(typeof raw==='object'?JSON.stringify(raw):String(raw))); td.textContent=v; body.appendChild(td);} $('rowMeta').textContent = `Last data row index (by Column A): ${index}`; } else { const td=document.createElement('td'); td.className='p-2 text-sm text-gray-500'; td.colSpan=headers.length||1; td.textContent='No rows with a value in Column A yet'; body.appendChild(td); $('rowMeta').textContent=''; } }
+    function renderLast({headers,row,index}){
+      $('lastDate').textContent = row? formatMaybeDate(row[0]) : 'None';
+      $('lastITD').textContent  = row? (row[1] ?? '') : '';
+      $('lastProd').textContent = row? (row[2] ?? '') : '';
+      $('rowMeta').textContent = row? `Row ${index}` : 'No prior rows with a value in Column A';
+    }
 
-    async function loadLast(){ const id=$('sheetId').value.trim(); const name=$('sheetName').value.trim(); $('sheetLink').href=`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`; try{ const res=await fetch(buildGvizUrl(id,name)); const txt=await res.text(); const g=parseGviz(txt); const values=gvizToValues(g); const {headers,row,index}=findLastRowByColA(values); renderLast(headers,row,index); diag(`Loaded ${Math.max(0,(values||[]).length-1)} rows, ${headers.length} columns.`);} catch(e){ diag('Load failed: '+e.message); alert('Load failed: '+e.message); console.error(e);} }
+    async function loadLast(){
+      $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=0`;
+      try{
+        const res = await fetch(buildGvizUrl(SHEET_ID, SHEET_NAME));
+        const txt = await res.text();
+        const g = parseGviz(txt);
+        const values = gvizToValues(g);
+        const last = findLastRowByColA(values);
+        renderLast(last);
+        diag(`Loaded ${Math.max(0,(values||[]).length-1)} rows.`);
+      }catch(e){ diag('Load failed: ' + e.message); alert('Load failed: ' + e.message); console.error(e); }
+    }
 
-    // ===== Append via shared endpoint =====
-    async function appendViaServer(spreadsheetId, sheetName, row){
-      const APPEND_ENDPOINT = readShared(ENDPOINT_KEYS);
-      const APPEND_SECRET = readShared(SECRET_KEYS);
-      if(!APPEND_ENDPOINT) throw new Error('No append endpoint configured in Settings.');
-      const payload = { spreadsheetId, sheetName, row, secret: APPEND_SECRET };
+    // ===== Append via backend (uses same endpoint as data.html) =====
+    async function appendViaServer(row){
+      const endpoint = readShared(ENDPOINT_KEYS);
+      const secret = readShared(SECRET_KEYS);
+      if(!endpoint) throw new Error('No append endpoint configured. Open data.html or set it below and Save.');
+      const payload = { spreadsheetId: SHEET_ID, sheetName: SHEET_NAME, row, secret, op: 'appendAtFirstEmptyA' };
       let res, text;
       try{
-        res = await fetch(APPEND_ENDPOINT, {
-          method: 'POST',
-          mode: 'cors',
-          credentials: 'omit',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      } catch(networkErr){
-        throw new Error('Network error. Possible CORS or DNS issue. ' + networkErr.message);
-      }
-      try { text = await res.text(); } catch(_) { text = ''; }
-      let data = null; try { data = text ? JSON.parse(text) : null; } catch(_) {}
+        res = await fetch(endpoint, { method:'POST', mode:'cors', credentials:'omit', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      }catch(err){ throw new Error('Network or CORS error: ' + err.message); }
+      try{ text = await res.text(); }catch{ text = ''; }
+      let data = null; try{ data = text ? JSON.parse(text) : null; }catch{}
       if(!res.ok){ throw new Error(`Server append failed ${res.status}. Body: ${text || '[no body]'}`); }
-      return data || { ok:true, raw:text };
+      return data || { ok:true };
     }
 
     async function handleAppend(){
-      const id=$('sheetId').value.trim();
-      const name=$('sheetName').value.trim();
-      const date=$('inDate').value.trim();
-      const itd=$('inITD').value.trim();
-      const prod=$('inProd').value.trim();
-      if(!date || itd==='' || prod===''){ setStatus('Please fill date, ITD production and production.', false); return; }
-      const ep = readShared(ENDPOINT_KEYS);
-      if(!ep){ updateEndpointBanner(); setStatus('Please configure the Append endpoint in Settings.', false); return; }
-      setStatus('Appending…', true);
+      const date = $('inDate').value.trim();
+      const itd  = $('inITD').value.trim();
+      const prod = $('inProd').value.trim();
+      const status = $('status');
+      if(!date || itd==='' || prod===''){ status.textContent='Fill all three fields'; status.className='text-sm bad'; return; }
+      status.textContent='Appending…'; status.className='text-sm';
       try{
         const row=[date, Number(itd), Number(prod)];
-        const resp = await appendViaServer(id, name, row);
-        setStatus('Row appended.', true);
-        $('inProd').value=''; $('inITD').value=''; $('inDate').value=todayISO();
+        await appendViaServer(row);
+        status.textContent='Saved'; status.className='text-sm ok';
+        $('inDate').value = todayISO(); $('inITD').value=''; $('inProd').value='';
         await loadLast();
-        if(resp && resp.error){ diag('Server reported: '+JSON.stringify(resp)); }
-      }catch(e){ setStatus('Append failed: ' + e.message, false); diag('Append failed: ' + e.message); console.error(e); }
+      }catch(e){ status.textContent='Append failed: ' + e.message; status.className='text-sm bad'; diag('Append failed: ' + e.message); }
     }
 
-    // ===== Endpoint checker =====
-    async function pingEndpoint(){
-      const ep = readShared(ENDPOINT_KEYS);
-      if(!ep){ $('cfgStatus').textContent='Add your endpoint first'; updateEndpointBanner(); return; }
-      $('cfgStatus').textContent='Pinging…';
-      try{
-        const res = await fetch(ep + (ep.includes('?')?'&':'?') + 'ping=1', { method:'GET', mode:'cors', credentials:'omit' });
-        $('cfgStatus').textContent = res.ok ? 'Endpoint reachable' : `Ping failed ${res.status}`;
-      } catch(e){ $('cfgStatus').textContent = 'Ping error: ' + e.message; }
-      setTimeout(()=>$('cfgStatus').textContent='', 2500);
-    }
+    // ===== Config UI =====
+    function loadCfgUI(){ $('appendUrl').value = readShared(ENDPOINT_KEYS); $('appendSecret').value = readShared(SECRET_KEYS); }
+    function saveCfg(){ writeShared(ENDPOINT_KEYS, $('appendUrl').value.trim()); writeShared(SECRET_KEYS, $('appendSecret').value.trim()); $('cfgStatus').textContent='Saved'; setTimeout(()=>$('cfgStatus').textContent='', 1200); }
+
+    // Quick setup via URL: ?append=...&secret=...
+    function hydrateFromQuery(){ const q=new URLSearchParams(location.search); const ep=q.get('append'); const sec=q.get('secret'); if(ep){ writeShared(ENDPOINT_KEYS, ep); } if(sec){ writeShared(SECRET_KEYS, sec); } }
 
     // ===== Events and boot =====
     window.addEventListener('load', ()=>{
       $('inDate').value = todayISO();
       hydrateFromQuery();
       loadCfgUI();
-      updateEndpointBanner();
       $('saveCfg').addEventListener('click', saveCfg);
-      $('pingBtn').addEventListener('click', pingEndpoint);
       $('refreshBtn').addEventListener('click', loadLast);
       $('appendBtn').addEventListener('click', handleAppend);
-      $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${$('sheetId').value.trim()}/edit#gid=0`;
       loadLast();
     });
   </script>

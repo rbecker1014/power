@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Energy & Solar KPI Dashboard - TOU + Monthly Summary + TOU Over Time</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    .card { background: #fff; border-radius: 1rem; box-shadow: 0 8px 16px rgba(0,0,0,.06); padding: 1.25rem; }
+    .kpi  { font-size: 1.875rem; font-weight: 600; }
+    .kpi-label { font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: #6b7280; }
+    .input { border: 1px solid #e5e7eb; border-radius: .5rem; padding: .5rem .75rem; width: 100%; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display:none; }
+    .modal { position: fixed; inset: 0; display:none; align-items: center; justify-content: center; padding: 1rem; }
+    .modal .panel { background:#fff; max-width: 56rem; width:100%; border-radius: 1rem; box-shadow: 0 20px 40px rgba(0,0,0,.15); }
+    .modal.show, .backdrop.show { display:flex; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-7xl mx-auto p-6 space-y-6">
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold">Household Electricity & Solar KPI Dashboard</h1>
+        <p class="text-gray-600 mt-1">Daily usage, solar production, TOU breakdown, monthly summary, and TOU usage over time.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="settingsBtn" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Settings</button>
+        <button id="refreshBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
+        <a id="sheetLink" href="#" target="_blank" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
+      </div>
+    </header>
+
+    <!-- Filters -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-3">Filters</h2>
+      <div class="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
+        <label class="block"><span class="text-sm text-gray-700">Start date</span><input id="startDate" type="date" class="input" /></label>
+        <label class="block"><span class="text-sm text-gray-700">End date</span><input id="endDate" type="date" class="input" /></label>
+        <div class="flex gap-3 lg:col-span-2">
+          <button id="applyBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 w-full">Apply</button>
+          <button id="clearBtn" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 w-full">Clear</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPI Tiles -->
+    <section class="grid md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div class="card"><div class="kpi" id="kpiUsage">0 kWh</div><div class="kpi-label">Total Usage</div></div>
+      <div class="card"><div class="kpi" id="kpiSolar">0 kWh</div><div class="kpi-label">Total Solar</div></div>
+      <div class="card"><div class="kpi" id="kpiSelfConsumption">0%</div><div class="kpi-label">Self Consumption</div></div>
+      <div class="card"><div class="kpi" id="kpiSolarToLoad">0 kWh</div><div class="kpi-label">Solar to Load</div></div>
+      <div class="card"><div class="kpi" id="kpiSolarToGrid">0 kWh</div><div class="kpi-label">Solar to Grid</div></div>
+    </section>
+
+    <!-- Charts: Daily + Monthly Summary -->
+    <section class="grid lg:grid-cols-2 gap-4">
+      <div class="card">
+        <h3 class="font-semibold mb-3">Daily Usage and Solar</h3>
+        <canvas id="chartDaily"></canvas>
+      </div>
+      <div class="card">
+        <h3 class="font-semibold mb-3">Monthly Summary</h3>
+        <canvas id="chartMonthly"></canvas>
+      </div>
+    </section>
+
+    <!-- TOU chart over time -->
+    <section class="card">
+      <h3 class="font-semibold mb-3">TOU Usage Over Time (stacked)</h3>
+      <canvas id="chartTOU"></canvas>
+      <p class="text-xs text-gray-500 mt-2">Each bar is a day. Stacked kWh by On-Peak, Off-Peak, and Super Off-Peak.</p>
+    </section>
+
+    <!-- Monthly summary table -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-3">Month by Month</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm" id="monthTable">
+          <thead class="bg-gray-100 text-gray-700"><tr>
+            <th class="text-left p-2">Month</th>
+            <th class="text-right p-2">Usage kWh</th>
+            <th class="text-right p-2">Solar kWh</th>
+            <th class="text-right p-2">On-Peak kWh</th>
+            <th class="text-right p-2">Off-Peak kWh</th>
+            <th class="text-right p-2">Super Off-Peak kWh</th>
+            <th class="text-right p-2">Self Consump.</th>
+            <th class="text-right p-2">Self Sufficiency</th>
+            <th class="text-right p-2">Solar to Grid kWh</th>
+          </tr></thead>
+          <tbody id="monthBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Data table -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-3">Data</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm" id="dataTable">
+          <thead class="bg-gray-100 text-gray-700"><tr>
+            <th class="text-left p-2">Date</th>
+            <th class="text-right p-2">Home kWh</th>
+            <th class="text-right p-2">Solar kWh</th>
+            <th class="text-right p-2">On-Peak kWh</th>
+            <th class="text-right p-2">Off-Peak kWh</th>
+            <th class="text-right p-2">Super Off-Peak kWh</th>
+            <th class="text-right p-2">Solar to Load kWh</th>
+            <th class="text-right p-2">Solar to Grid kWh</th>
+          </tr></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Diagnostics & Tests -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-3">Diagnostics</h2>
+      <div id="diag" class="text-sm space-y-2"></div>
+      <pre id="rawHead" class="mono text-xs bg-gray-50 border border-gray-200 rounded-lg p-3 overflow-auto max-h-48"></pre>
+      <div class="mt-3">
+        <button id="runTestsBtn" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Run built-in tests</button>
+        <span id="testSummary" class="ml-3 text-sm"></span>
+      </div>
+      <div id="testOutput" class="mt-3 text-sm mono"></div>
+    </section>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="backdrop" class="backdrop"></div>
+  <div id="settingsModal" class="modal" aria-modal="true" role="dialog">
+    <div class="panel">
+      <div class="p-5 border-b flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Data Source Settings</h2>
+        <button id="closeSettings" class="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200">Close</button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <label class="block">
+            <span class="text-sm text-gray-700">Google Sheet ID</span>
+            <input id="sheetId" class="input" value="193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac" />
+            <p class="text-xs text-gray-500 mt-1">The long ID in your Sheet URL</p>
+          </label>
+          <label class="block">
+            <span class="text-sm text-gray-700">Sheet name (tab)</span>
+            <input id="sheetName" class="input" value="Data" />
+            <p class="text-xs text-gray-500 mt-1">Exact tab name that holds the data</p>
+          </label>
+          <div class="md:col-span-2 lg:col-span-3 grid sm:grid-cols-2 lg:grid-cols-6 gap-4">
+            <label class="block"><span class="text-sm text-gray-700">Date</span><select id="mapDate" class="input"></select></label>
+            <label class="block"><span class="text-sm text-gray-700">Home usage kWh</span><select id="mapUse" class="input"></select></label>
+            <label class="block"><span class="text-sm text-gray-700">Solar production kWh</span><select id="mapSolar" class="input"></select></label>
+            <label class="block"><span class="text-sm text-gray-700">On-Peak kWh</span><select id="mapOn" class="input"></select></label>
+            <label class="block"><span class="text-sm text-gray-700">Off-Peak kWh</span><select id="mapOff" class="input"></select></label>
+            <label class="block"><span class="text-sm text-gray-700">Super Off-Peak kWh</span><select id="mapSuper" class="input"></select></label>
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <button id="detectBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Auto-detect columns</button>
+          <button id="saveMapBtn" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200">Save mapping</button>
+          <button id="clearMapBtn" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200">Clear mapping</button>
+        </div>
+        <p id="mapWarn" class="hidden mt-1 p-3 rounded-lg bg-amber-100 text-amber-900 border border-amber-300">Required columns not mapped yet. Select Date and Home usage, then Refresh.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Utilities ----------
+    var fmtKWh = function(n){ return (Number.isFinite(n) ? n : 0).toLocaleString(undefined, { maximumFractionDigits: 2 }) + " kWh"; };
+    var fmtPct = function(n){ return (((Number.isFinite(n) ? n : 0) * 100).toFixed(1)) + "%"; };
+    var norm = function(s){ return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "").trim(); };
+
+    // Alias map includes TOU columns
+    var aliasMap = {
+      "date": ["date", "day", "timestamp", "readingdate", "reading"],
+      "use": ["homekwh", "usage", "usagekwh", "home", "load", "consumption", "energyuse", "housekwh", "totalconsumption", "kwhused", "usekwh", "consumed", "sdgenetusage", "usagekwh"],
+      "solar": ["solarkwh", "solar", "pv", "pvkwh", "production", "generation", "generated", "energyproduced", "solargeneration"],
+      "on": ["onpeak", "peak", "onpk"],
+      "off": ["offpeak", "offpk"],
+      "super": ["superoffpeak", "superoff", "sop", "superoffpk"]
+    };
+
+    function buildGvizUrl(id, sheet, extraParams){
+      if(!extraParams) extraParams = {};
+      var base = "https://docs.google.com/spreadsheets/d/" + id + "/gviz/tq";
+      var params = new URLSearchParams(extraParams);
+      if (sheet) params.set("sheet", sheet);
+      return base + "?" + params.toString();
+    }
+
+    function sanitizeAntiXSSI(text){
+      return text.replace(/^\)\]\}'\n/, "").replace(/^\/\*O_o\*\/\n/, "");
+    }
+
+    function parseGviz(text){
+      var raw = sanitizeAntiXSSI(text);
+      var m = raw.match(/google\\.visualization\\.Query\\.setResponse\(([\s\S]*)\);?$/);
+      if (m) {
+        return JSON.parse(m[1]);
+      }
+      var needle = "setResponse(";
+      var idx = raw.indexOf(needle);
+      if (idx !== -1) {
+        var start = idx + needle.length;
+        var end = raw.lastIndexOf(")");
+        if (end > start) {
+          var payload = raw.slice(start, end);
+          return JSON.parse(payload);
+        }
+      }
+      var firstBrace = raw.indexOf("{");
+      var lastBrace = raw.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        var slice = raw.slice(firstBrace, lastBrace + 1);
+        try { return JSON.parse(slice); } catch(e) {}
+      }
+      throw new Error("Unexpected GViz format");
+    }
+
+    function populateMappingSelects(cols){
+      var trimmed = cols.map(function(c){ return (c || "").trim(); });
+      var selects = [["mapDate","date"],["mapUse","use"],["mapSolar","solar"],["mapOn","on"],["mapOff","off"],["mapSuper","super"]];
+      selects.forEach(function(pair){
+        var id = pair[0];
+        var sel = document.getElementById(id);
+        sel.innerHTML = "";
+        trimmed.forEach(function(c,i){
+          var o = document.createElement("option");
+          o.value = i;
+          o.textContent = c;
+          sel.appendChild(o);
+        });
+        if (id === "mapSolar" || id === "mapOn" || id === "mapOff" || id === "mapSuper") {
+          var none = document.createElement("option");
+          none.value = "";
+          none.textContent = "None";
+          sel.insertBefore(none, sel.firstChild);
+        }
+      });
+    }
+
+    function tryAutoMap(cols){
+      var ncols = cols.map(function(c){ return norm(String(c || "").trim()); });
+      function pick(key){
+        var i, alias, tokens, scored;
+        for (i = 0; i < aliasMap[key].length; i++){
+          alias = aliasMap[key][i];
+          var j = ncols.findIndex(function(c){ return c === alias; });
+          if (j !== -1) return j;
+        }
+        for (i = 0; i < aliasMap[key].length; i++){
+          alias = aliasMap[key][i];
+          var k = ncols.findIndex(function(c){ return c.indexOf(alias) !== -1; });
+          if (k !== -1) return k;
+        }
+        tokens = aliasMap[key];
+        scored = ncols.map(function(c,ix){
+          return { i: ix, score: tokens.reduce(function(a,t){ return a + (c.indexOf(t) !== -1 ? 1 : 0); }, 0) };
+        }).sort(function(a,b){ return b.score - a.score; });
+        if (scored[0] && scored[0].score > 0) return scored[0].i;
+        return null;
+      }
+      return { date: pick("date"), use: pick("use"), solar: pick("solar"), on: pick("on"), off: pick("off"), super: pick("super") };
+    }
+
+    function loadMapping(id, sheet){ var raw = localStorage.getItem("energy-map:" + id + ":" + sheet); return raw ? JSON.parse(raw) : null; }
+    function setSelectValues(map){
+      if (!map) return;
+      var pairs = [["mapDate","date"],["mapUse","use"],["mapSolar","solar"],["mapOn","on"],["mapOff","off"],["mapSuper","super"]];
+      for (var p=0; p<pairs.length; p++){
+        var selId = pairs[p][0], key = pairs[p][1];
+        var sel = document.getElementById(selId);
+        if (!sel) continue;
+        var v = map[key];
+        if (Number.isInteger(v) && v >= 0 && v < sel.options.length) sel.value = String(v);
+      }
+    }
+    function getCurrentMapping(){
+      function v(id){ var x = document.getElementById(id).value; return x === "" ? null : Number(x); }
+      return { date: v("mapDate"), use: v("mapUse"), solar: v("mapSolar"), on: v("mapOn"), off: v("mapOff"), super: v("mapSuper") };
+    }
+    function mappingIsValid(map){ return Number.isInteger(map.date) && Number.isInteger(map.use); }
+
+    function excelSerialToDate(n){ var ms = (n - 25569) * 86400000; var d = new Date(ms); return isNaN(d) ? null : d; }
+    function parseDateCell(cell){
+      if (!cell) return null;
+      var v = cell.v, f = cell.f;
+      if (typeof v === "string"){ var d1 = new Date(v); if (!isNaN(d1)) return d1; }
+      if (typeof f === "string"){ var d2 = new Date(f); if (!isNaN(d2)) return d2; }
+      if (typeof v === "number"){ var d3 = excelSerialToDate(v); if (d3) return d3; }
+      if (v && typeof v === "object" && v.year != null){ return new Date(v.year, v.month || 0, v.day || 1); }
+      return null;
+    }
+
+    function extractRowsByIndex(gviz, idx){
+      var rawRows = (gviz.table && gviz.table.rows) ? gviz.table.rows : [];
+      var rows = rawRows.map(function(r){
+        var dCell = r.c && r.c[idx.date];
+        var date = parseDateCell(dCell);
+        if (!date) return null;
+        function getNum(i){ return (i == null || !r.c[i] || r.c[i].v == null || r.c[i].v === "") ? 0 : Number(r.c[i].v); }
+        var use = getNum(idx.use);
+        var solar = idx.solar != null ? getNum(idx.solar) : 0;
+        var on = idx.on != null ? getNum(idx.on) : 0;
+        var off = idx.off != null ? getNum(idx.off) : 0;
+        var sup = idx["super"] != null ? getNum(idx["super"]) : 0;
+        var solarToLoad = Math.min(solar, use);
+        var solarToGrid = Math.max(0, solar - solarToLoad);
+        return { date: date, use: use, solar: solar, on: on, off: off, sup: sup, solarToLoad: solarToLoad, solarToGrid: solarToGrid };
+      }).filter(function(x){ return !!x; }).sort(function(a,b){ return a.date - b.date; });
+      return { rows: rows, rawRows: rawRows };
+    }
+
+    function monthKey(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); }
+
+    function calcKPIs(rows){
+      if (!rows.length) return { totalUse:0,totalSolar:0,selfConsumption:0,selfSufficiency:0,avgDailyUse:0,totalSolarToLoad:0,totalSolarToGrid:0 };
+      function sum(k){ return rows.reduce(function(a,b){ return a + (b[k] || 0); }, 0); }
+      var totalUse = sum("use"), totalSolar = sum("solar");
+      var totalSolarToLoad = sum("solarToLoad");
+      var totalSolarToGrid = sum("solarToGrid");
+      var selfConsumption = totalSolar ? totalSolarToLoad/totalSolar : 0;
+      var selfSufficiency = totalUse ? totalSolarToLoad/totalUse : 0;
+      var days = (rows[rows.length-1].date - rows[0].date)/86400000 + 1;
+      var avgDailyUse = days>0 ? totalUse/days : 0;
+      return { totalUse: totalUse, totalSolar: totalSolar, selfConsumption: selfConsumption, selfSufficiency: selfSufficiency, avgDailyUse: avgDailyUse, totalSolarToLoad: totalSolarToLoad, totalSolarToGrid: totalSolarToGrid };
+    }
+
+    function aggregateMonthly(rows){
+      var m = new Map();
+      for (var i=0; i<irowslength=""; i++){
+        var r = rows[i];
+        var key = monthKey(r.date);
+        if (!m.has(key)) m.set(key, { key: key, use:0, solar:0, on:0, off:0, sup:0, solarToLoad:0, solarToGrid:0, start:r.date });
+        var a = m.get(key);
+        a.use += r.use; a.solar += r.solar; a.on += r.on; a.off += r.off; a.sup += r.sup; a.solarToLoad += r.solarToLoad; a.solarToGrid += r.solarToGrid;
+      }
+      return Array.from(m.values()).sort(function(a,b){ return a.start - b.start; });
+    }
+
+    function renderKPIs(k){
+      document.getElementById("kpiUsage").textContent = fmtKWh(k.totalUse);
+      document.getElementById("kpiSolar").textContent = fmtKWh(k.totalSolar);
+      document.getElementById("kpiSelfConsumption").textContent = fmtPct(k.selfConsumption);
+      document.getElementById("kpiSolarToLoad").textContent = fmtKWh(k.totalSolarToLoad);
+      document.getElementById("kpiSolarToGrid").textContent = fmtKWh(k.totalSolarToGrid);
+    }
+
+    var dailyChart, monthlyChart, touChart;
+    function renderCharts(rows){
+      var labels = rows.map(function(r){ return r.date.toISOString().split("T")[0]; });
+      var use = rows.map(function(r){ return r.use; }), solar = rows.map(function(r){ return r.solar; });
+      var dailyCtx = document.getElementById("chartDaily"); if (dailyChart) dailyChart.destroy();
+      dailyChart = new Chart(dailyCtx, { type:"line", data:{ labels: labels, datasets:[
+        { label:"Home kWh", data: use }, { label:"Solar kWh", data: solar }
+      ]}, options:{ responsive:true, interaction:{mode:"index",intersect:false}, plugins:{ legend:{ position:"bottom" } }, scales:{ x:{ ticks:{ maxRotation:0, autoSkip:true } } } }});
+
+      var monthly = aggregateMonthly(rows);
+      var mLabels = monthly.map(function(x){ return x.key; });
+      var mUse = monthly.map(function(x){ return x.use; });
+      var mSolar = monthly.map(function(x){ return x.solar; });
+      var monthlyCtx = document.getElementById("chartMonthly"); if (monthlyChart) monthlyChart.destroy();
+      monthlyChart = new Chart(monthlyCtx, { type:"bar", data:{ labels:mLabels, datasets:[
+        { label:"Usage kWh", data:mUse }, { label:"Solar kWh", data:mSolar }
+      ]}, options:{ responsive:true, plugins:{ legend:{ position:"bottom" } }, scales:{ x:{ stacked:false }, y:{ beginAtZero:true } } });
+
+      var touCtx = document.getElementById("chartTOU"); if (touChart) touChart.destroy();
+      var on = rows.map(function(r){ return r.on; }), off = rows.map(function(r){ return r.off; }), sup = rows.map(function(r){ return r.sup; });
+      touChart = new Chart(touCtx, { type:"bar", data:{ labels: labels, datasets:[
+        { label:"On-Peak", data:on, stack:"usage" }, { label:"Off-Peak", data:off, stack:"usage" }, { label:"Super Off-Peak", data:sup, stack:"usage" }
+      ]}, options:{ responsive:true, plugins:{ legend:{ position:"bottom" } }, scales:{ x:{ stacked:true, ticks:{ maxRotation:0, autoSkip:true } }, y:{ stacked:true, beginAtZero:true } } }});
+    }
+
+    function renderMonthTable(rows){
+      var tbody = document.getElementById("monthBody"); tbody.innerHTML="";
+      var monthly = aggregateMonthly(rows);
+      var frag = document.createDocumentFragment();
+      monthly.forEach(function(m){
+        var selfConsumption = m.solar ? Math.min(m.solarToLoad/m.solar,1) : 0;
+        var selfSufficiency = m.use ? Math.min(m.solarToLoad/m.use,1) : 0;
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td class="p-2 whitespace-nowrap">' + m.key + '</td>' +
+          '<td class="p-2 text-right">' + m.use.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + m.solar.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + m.on.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + m.off.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + m.sup.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + (selfConsumption*100).toFixed(1) + '%</td>' +
+          '<td class="p-2 text-right">' + (selfSufficiency*100).toFixed(1) + '%</td>' +
+          '<td class="p-2 text-right">' + m.solarToGrid.toFixed(2) + '</td>';
+        frag.appendChild(tr);
+      });
+      tbody.appendChild(frag);
+    }
+
+    function renderTable(rows){
+      var tbody = document.getElementById("tableBody"); tbody.innerHTML="";
+      var frag = document.createDocumentFragment();
+      rows.forEach(function(r){
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td class="p-2 whitespace-nowrap">' + r.date.toISOString().split('T')[0] + '</td>' +
+          '<td class="p-2 text-right">' + r.use.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + r.solar.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + r.on.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + r.off.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + r.sup.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + r.solarToLoad.toFixed(2) + '</td>' +
+          '<td class="p-2 text-right">' + r.solarToGrid.toFixed(2) + '</td>';
+        frag.appendChild(tr);
+      });
+      tbody.appendChild(frag);
+    }
+
+    function renderAll(rows){ renderKPIs(calcKPIs(rows)); renderCharts(rows); renderMonthTable(rows); renderTable(rows); }
+
+    function showWarn(show,msg){ var el=document.getElementById("mapWarn"); if(show){ el.classList.remove("hidden"); if(msg) el.textContent=msg; } else { el.classList.add("hidden"); } }
+    function diag(msg){ var d=document.getElementById("diag"); var p=document.createElement("p"); p.textContent = msg; d.appendChild(p); }
+
+    async function fetchGvizWithFallback(id, sheet){
+      var attempts = [ { label: "sheet=" + sheet, url: buildGvizUrl(id, sheet) }, { label: "gid=0", url: buildGvizUrl(id, null, { gid: "0" }) } ];
+      var lastErr = null;
+      for (var a = 0; a < attempts.length; a++){
+        var at = attempts[a];
+        try {
+          var res = await fetch(at.url, { credentials: "omit" });
+          var txt = await res.text();
+          document.getElementById("rawHead").textContent = txt.slice(0, 400);
+          var g = parseGviz(txt);
+          if (g.status === "error"){
+            var msg = (g.errors && g.errors[0] && (g.errors[0].detailed_message || g.errors[0].message)) || "Unknown GViz error";
+            throw new Error("GViz status error - " + msg);
+          }
+          diag("Fetched using " + at.label + " (HTTP " + res.status + ").");
+          return g;
+        } catch(e){ lastErr = e; diag("Attempt " + at.label + " failed - " + e.message); }
+      }
+      throw lastErr || new Error("All GViz attempts failed");
+    }
+
+    async function loadData(){
+      var id = document.getElementById("sheetId").value.trim(); var name = document.getElementById("sheetName").value.trim();
+      document.getElementById("sheetLink").href = "https://docs.google.com/spreadsheets/d/" + id + "/edit#gid=0";
+      try {
+        var g = await fetchGvizWithFallback(id, name);
+        var cols = (g.table && g.table.cols ? g.table.cols : []).map(function(c){ return (c.label || c.id || "").trim(); });
+        var rawRows = (g.table && g.table.rows) ? g.table.rows : [];
+        populateMappingSelects(cols);
+        var map = loadMapping(id, name) || tryAutoMap(cols);
+        setSelectValues(map);
+        if (!mappingIsValid(getCurrentMapping())) { showWarn(true, "Required columns not mapped yet. Select Date and Home usage then Refresh."); return; }
+        showWarn(false);
+        var ex = extractRowsByIndex(g, getCurrentMapping());
+        var rows = ex.rows;
+        window.__rows = rows;
+        if (rows.length){
+          var min = rows[0].date.toISOString().split("T")[0];
+          var max = rows[rows.length-1].date.toISOString().split("T")[0];
+          if (!document.getElementById("startDate").value) document.getElementById("startDate").value = min;
+          if (!document.getElementById("endDate").value) document.getElementById("endDate").value = max;
+        }
+        applyFilters();
+        diag("GViz returned " + rawRows.length + " raw row(s). After parsing, " + rows.length + " row(s). Columns: " + cols.join(", "));
+      } catch(e){ alert("Failed to load data: " + e.message); console.error(e); }
+    }
+
+    function applyFilters(){
+      var s = document.getElementById("startDate").value ? new Date(document.getElementById("startDate").value) : null;
+      var e = document.getElementById("endDate").value ? new Date(document.getElementById("endDate").value) : null;
+      var rows = (window.__rows || []).filter(function(r){ return (!s || r.date >= s) && (!e || r.date <= e); });
+      renderAll(rows);
+    }
+
+    // Modal controls
+    function openSettings(){ document.getElementById("backdrop").classList.add("show"); document.getElementById("settingsModal").classList.add("show"); }
+    function closeSettings(){ document.getElementById("backdrop").classList.remove("show"); document.getElementById("settingsModal").classList.remove("show"); }
+
+    // Test helpers
+    function makeGvizLike(headers, data){ return { table:{ cols: headers.map(function(h){ return {label:h}; }), rows: data.map(function(row){ return { c: row.map(function(v){ return { v: v }; }) }; }) } }; }
+
+    function runTests(){
+      var out = []; function t(name, fn){ try{ fn(); out.push("✅ " + name); } catch(e){ out.push("❌ " + name + " -> " + e.message); } }
+      // 1. Exact headers with TOU
+      t("Exact headers with TOU", function(){ var g=makeGvizLike(["Date","Usage","Solar","On-Peak","Off-Peak","Super Off-Peak"], [["2025-01-01",10,6,2,3,5]]); var cols=g.table.cols.map(function(c){ return c.label; }); populateMappingSelects(cols); var auto=tryAutoMap(cols); var ex=extractRowsByIndex(g, auto); if (!ex.rows.length||ex.rows[0].use!==10||ex.rows[0].on!==2) throw new Error("failed extract"); });
+      // 2. Variant names
+      t("Variant names map", function(){ var g=makeGvizLike(["reading date","Usage (kWh)","Solar Production","Peak","OffPk","SuperOffPk"], [["2025-02-01",12,5,7,2,1]]); var cols=g.table.cols.map(function(c){ return c.label; }); var auto=tryAutoMap(cols); var ex=extractRowsByIndex(g, auto); if (ex.rows[0].solar!==5 || ex.rows[0].off!==2) throw new Error("wrong mapping"); });
+      // 3. Missing optional TOU
+      t("Works when TOU missing", function(){ var g=makeGvizLike(["Date","Usage","PV"], [["2025-03-01",8,3]]); var cols=g.table.cols.map(function(c){ return c.label; }); var auto=tryAutoMap(cols); var ex=extractRowsByIndex(g, {date:auto.date,use:auto.use,solar:auto.solar,on:null,off:null,super:null}); if (ex.rows[0].on!==0||ex.rows[0].sup!==0) throw new Error("defaults fail"); });
+      // 4. Monthly aggregation
+      t("Monthly aggregation computes", function(){ var g=makeGvizLike(["Date","Usage","Solar"], [["2025-04-01",10,6],["2025-04-02",5,2],["2025-05-01",8,4]]); var auto={date:0,use:1,solar:2,on:null,off:null,super:null}; var ex=extractRowsByIndex(g, auto); var agg=aggregateMonthly(ex.rows); if (agg.length!==2||Math.round(agg[0].use)!==15) throw new Error("agg wrong"); });
+      // 5. Trailing spaces and serial dates
+      t("Maps headers with trailing spaces and parses serial date", function(){ var g=makeGvizLike(["Date ", "Usage (kWh", "Solar "], [[45658,9,3]]); var ex=extractRowsByIndex(g, {date:0,use:1,solar:2,on:null,off:null,super:null}); if (!ex.rows.length||ex.rows[0].use!==9||ex.rows[0].solar!==3) throw new Error("serial or mapping failed"); });
+      // 6. parseGviz standard wrapper
+      t("parseGviz handles standard wrapper", function(){ var txt = "/*O_o*/\ngoogle.visualization.Query.setResponse({\"table\":{\"cols\":[{\"label\":\"A\"}],\"rows\":[]}});"; var obj = parseGviz(txt); if (!obj.table || !Array.isArray(obj.table.cols)) throw new Error("wrapper parse failed"); });
+      // 7. parseGviz rejects HTML and surfaces error
+      t("parseGviz rejects HTML", function(){ var threw=false; try { parseGviz('<html>Sign in required</html>'); } catch(e) { threw=true; } if (!threw) throw new Error("should throw on HTML"); });
+      // 8. KPI solar to grid when solar>use
+      t("KPI solarToGrid where solar>use", function(){ var g=makeGvizLike(["Date","Usage","Solar"], [["2025-01-01",5,9]]); var ex=extractRowsByIndex(g, {date:0,use:1,solar:2,on:null,off:null,super:null}); var k=calcKPIs(ex.rows); if (Math.round(k.totalSolarToGrid)!==4) throw new Error("solarToGrid wrong"); });
+      // 9. KPI solar to grid when solar<=use
+      t("KPI solarToGrid zero when solar<=use", function(){ var g=makeGvizLike(["Date","Usage","Solar"], [["2025-01-01",9,5]]); var ex=extractRowsByIndex(g, {date:0,use:1,solar:2,on:null,off:null,super:null}); var k=calcKPIs(ex.rows); if (k.totalSolarToGrid!==0) throw new Error("solarToGrid should be 0"); });
+
+      document.getElementById("testOutput").textContent = out.join("\n"); var pass=out.filter(function(x){ return x.indexOf("✅")===0; }).length; var total=out.length; document.getElementById("testSummary").textContent = pass + "/" + total + " tests passed";
+    }
+
+    // Events
+    document.getElementById("applyBtn").addEventListener("click", applyFilters);
+    document.getElementById("clearBtn").addEventListener("click", function(){ document.getElementById("startDate").value=""; document.getElementById("endDate").value=""; renderAll(window.__rows||[]); });
+    document.getElementById("refreshBtn").addEventListener("click", loadData);
+    document.getElementById("settingsBtn").addEventListener("click", openSettings);
+    document.getElementById("closeSettings").addEventListener("click", closeSettings);
+    document.getElementById("backdrop").addEventListener("click", closeSettings);
+    document.getElementById("detectBtn").addEventListener("click", async function(){
+      var id=document.getElementById("sheetId").value.trim(); var name=document.getElementById("sheetName").value.trim();
+      try { var g = await fetchGvizWithFallback(id, name); var cols=(g.table&&g.table.cols?g.table.cols:[]).map(function(c){ return (c.label||c.id||"").trim();}); populateMappingSelects(cols); var auto=tryAutoMap(cols); setSelectValues(auto); showWarn(!mappingIsValid(getCurrentMapping()), "Check Date and Home usage selections."); } catch(e) { alert("Detect failed: " + e.message); }
+    });
+    document.getElementById("saveMapBtn").addEventListener("click", function(){ var id=document.getElementById("sheetId").value.trim(); var name=document.getElementById("sheetName").value.trim(); var map=getCurrentMapping(); localStorage.setItem("energy-map:"+id+":"+name, JSON.stringify(map)); });
+    document.getElementById("clearMapBtn").addEventListener("click", function(){ var id=document.getElementById("sheetId").value.trim(); var name=document.getElementById("sheetName").value.trim(); localStorage.removeItem("energy-map:"+id+":"+name); });
+    document.getElementById("runTestsBtn").addEventListener("click", runTests);
+
+    // Boot
+    loadData();
+  </script>
+</body>
+</html>

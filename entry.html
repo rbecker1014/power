@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Entry – Data sheet (read last row + append)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    .card { background: #fff; border-radius: 1rem; box-shadow: 0 8px 16px rgba(0,0,0,.06); padding: 1rem; }
+    .input { border: 1px solid #e5e7eb; border-radius: .5rem; padding: .5rem .75rem; width: 100%; }
+    .chip { display:inline-block; border-radius:9999px; padding:.15rem .55rem; background:#f3f4f6; font-size:.75rem }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-3xl mx-auto p-6 space-y-6">
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold">Data Entry – Data sheet</h1>
+        <p class="text-gray-600 mt-1">Shows the last non empty row from the <span class="font-semibold">Data</span> tab and lets you append a new row.</p>
+      </div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <a href="index.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Dashboard</a>
+        <a href="data.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">All Rows</a>
+        <button id="signInBtn" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Sign in</button>
+        <button id="signOutBtn" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 hidden">Sign out</button>
+        <span id="modeChip" class="chip">Mode: Public (GViz)</span>
+      </div>
+    </header>
+
+    <!-- Sheet config (visible so you can repoint if needed) -->
+    <section class="card">
+      <div class="grid sm:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="text-sm text-gray-700">Google Sheet ID</span>
+          <input id="sheetId" class="input" value="193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-gray-700">Sheet name</span>
+          <input id="sheetName" class="input" value="Data" />
+        </label>
+      </div>
+      <div class="mt-2 text-xs text-gray-500">Writes require Sign in because the browser must call the Sheets API with your Google account. Reading can fall back to GViz if not signed in.</div>
+    </section>
+
+    <!-- Last row viewer -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-3">Last row on Data</h2>
+      <div id="lastRowWrap" class="overflow-auto border border-gray-200 rounded-lg">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-100 text-gray-700"><tr id="lastHead"></tr></thead>
+          <tbody><tr id="lastBody"></tr></tbody>
+        </table>
+      </div>
+      <div id="rowMeta" class="text-xs text-gray-500 mt-2"></div>
+    </section>
+
+    <!-- Append form -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-3">Append a new row</h2>
+      <div class="grid md:grid-cols-3 gap-4">
+        <label class="block">
+          <span class="text-sm text-gray-700">Date (Column A)</span>
+          <input id="inDate" type="date" class="input" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-gray-700">ITD Production # (Column B)</span>
+          <input id="inITD" type="number" step="any" class="input" placeholder="e.g. 12345" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-gray-700">Production (Column C)</span>
+          <input id="inProd" type="number" step="any" class="input" placeholder="kWh for the day" />
+        </label>
+      </div>
+      <div class="flex items-center gap-3 mt-4">
+        <button id="appendBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Append Row</button>
+        <button id="refreshBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
+        <a id="sheetLink" href="#" target="_blank" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
+        <span id="status" class="text-sm"></span>
+      </div>
+      <p id="signHint" class="text-xs text-amber-700 bg-amber-100 border border-amber-300 rounded-lg p-2 mt-3 hidden">Sign in to enable append.</p>
+    </section>
+
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-2">Diagnostics</h2>
+      <div id="diag" class="mono text-xs whitespace-pre-wrap"></div>
+    </section>
+  </div>
+
+  <script>
+    // ===== OAuth config (same client and scope as dashboard) =====
+    const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
+    const SHEETS_SCOPE   = "https://www.googleapis.com/auth/spreadsheets"; // read-write
+    let accessToken = null;
+    let tokenClient = null;
+
+    // ===== Small helpers =====
+    const diag = (m) => { const d=document.getElementById('diag'); d.textContent += m + "\n"; };
+    const setMode = (t) => { document.getElementById('modeChip').textContent = t; };
+    const todayISO = () => new Date().toISOString().slice(0,10);
+
+    function sanitizeAntiXSSI(t){ return t.replace(/^\)\]\}'\n/, '').replace(/^\/\*O_o\*\/\n/, ''); }
+    function parseGviz(text){
+      const raw = sanitizeAntiXSSI(text);
+      const m = raw.match(/google\.visualization\.Query\.setResponse\((.*)\);?/s);
+      if (!m) throw new Error('Unexpected GViz format');
+      return JSON.parse(m[1]);
+    }
+    function gvizToValues(g){
+      const cols = (g.table && g.table.cols ? g.table.cols : []).map(c => (c.label || c.id || '').trim());
+      const rows = (g.table && g.table.rows ? g.table.rows : []).map(r => (r.c||[]).map(c => c && c.v != null ? c.v : ''));
+      return [cols, ...rows];
+    }
+
+    // ===== Sheets API helpers (private) =====
+    async function readValuesPrivate(spreadsheetId, sheetName){
+      const range = encodeURIComponent(`${sheetName}!A1:Z10000`);
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?majorDimension=ROWS`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok){ throw new Error(`Sheets API error ${res.status}: ${await res.text()}`); }
+      const j = await res.json();
+      return j.values || [];
+    }
+    async function appendRowPrivate(spreadsheetId, sheetName, row){
+      const range = encodeURIComponent(`${sheetName}!A1`);
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+      const res = await fetch(url, { method:'POST', headers:{ Authorization:`Bearer ${accessToken}`, 'Content-Type':'application/json' }, body: JSON.stringify({ values:[row] }) });
+      if (!res.ok){ throw new Error(`Append failed ${res.status}: ${await res.text()}`); }
+      return res.json();
+    }
+
+    // ===== GViz fallback (public read) =====
+    function buildGvizUrl(id, sheet){ const p=new URLSearchParams(sheet?{sheet}:{}) ; return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?${p.toString()}`; }
+    async function readValuesPublic(id, sheet){ const res=await fetch(buildGvizUrl(id, sheet)); const txt=await res.text(); const g=parseGviz(txt); return gvizToValues(g); }
+
+    // ===== Last row logic =====
+    function findLastNonEmptyRow(values){
+      if (!values || values.length < 2) return { headers: values[0]||[], row: null, index: 0 };
+      const headers = values[0];
+      for (let i = values.length - 1; i >= 1; i--){
+        const row = values[i];
+        if (row && row.some(cell => cell !== '' && cell != null)){
+          return { headers, row, index: i };
+        }
+      }
+      return { headers, row: null, index: 0 };
+    }
+    function renderLastRowView(headers, row, index){
+      const head = document.getElementById('lastHead');
+      const body = document.getElementById('lastBody');
+      head.innerHTML = '';
+      body.innerHTML = '';
+      headers.forEach(h => { const th=document.createElement('th'); th.className='p-2 text-left'; th.textContent = String(h||''); head.appendChild(th); });
+      if (row){
+        for (let c = 0; c < headers.length; c++){
+          const td=document.createElement('td'); td.className='p-2 whitespace-nowrap';
+          let v = row[c];
+          if (c === 0 && v){ // try to format date
+            const d = new Date(v);
+            if (!isNaN(d)) v = d.toISOString().slice(0,10);
+          }
+          body.appendChild(Object.assign(td, { textContent: v == null ? '' : String(v) }));
+        }
+        document.getElementById('rowMeta').textContent = `Last data row index: ${index}`;
+      } else {
+        const td=document.createElement('td'); td.className='p-2 text-sm text-gray-500'; td.colSpan = headers.length || 1; td.textContent = 'No data rows yet'; body.appendChild(td);
+        document.getElementById('rowMeta').textContent = '';
+      }
+    }
+
+    // ===== Page wiring =====
+    async function loadLast(){
+      const id = document.getElementById('sheetId').value.trim();
+      const name = document.getElementById('sheetName').value.trim();
+      document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`;
+      try {
+        let values;
+        if (accessToken){ setMode('Mode: Private (Sheets API)'); values = await readValuesPrivate(id, name); }
+        else { setMode('Mode: Public (GViz)'); values = await readValuesPublic(id, name); }
+        const { headers, row, index } = findLastNonEmptyRow(values);
+        renderLastRowView(headers, row, index);
+        diag(`Loaded ${Math.max(0, (values||[]).length-1)} rows, ${headers.length} columns.`);
+      } catch(e){ diag('Load failed: ' + e.message); alert('Load failed: ' + e.message); console.error(e); }
+    }
+
+    async function handleAppend(){
+      const id = document.getElementById('sheetId').value.trim();
+      const name = document.getElementById('sheetName').value.trim();
+      const date = document.getElementById('inDate').value.trim();
+      const itd  = document.getElementById('inITD').value.trim();
+      const prod = document.getElementById('inProd').value.trim();
+      const status = document.getElementById('status');
+      if (!accessToken){ document.getElementById('signHint').classList.remove('hidden'); status.textContent=''; return; }
+      if (!date || itd === '' || prod === ''){ status.textContent = 'Please fill date, ITD production, and production.'; return; }
+      try {
+        // Send YYYY-MM-DD to Sheets. USER_ENTERED lets Sheets parse it as a date.
+        const row = [date, Number(itd), Number(prod)];
+        status.textContent = 'Appending...';
+        await appendRowPrivate(id, name, row);
+        status.textContent = 'Row appended.';
+        document.getElementById('inProd').value = '';
+        document.getElementById('inITD').value = '';
+        document.getElementById('inDate').value = todayISO();
+        await loadLast();
+      } catch(e){ status.textContent = `Append failed: ${e.message}`; console.error(e); }
+    }
+
+    // Events and init
+    window.addEventListener('load', () => {
+      // Default date prefill
+      document.getElementById('inDate').value = todayISO();
+
+      // OAuth init
+      if (window.google && google.accounts && google.accounts.oauth2){
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SHEETS_SCOPE,
+          callback: (resp) => {
+            if (resp && resp.access_token){
+              accessToken = resp.access_token;
+              document.getElementById('signOutBtn').classList.remove('hidden');
+              document.getElementById('signInBtn').classList.add('hidden');
+              document.getElementById('signHint').classList.add('hidden');
+              loadLast();
+            }
+          }
+        });
+      }
+
+      document.getElementById('signInBtn').addEventListener('click', () => {
+        if (!tokenClient){ alert('Google Identity not ready yet.'); return; }
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      });
+      document.getElementById('signOutBtn').addEventListener('click', () => {
+        accessToken = null;
+        document.getElementById('signOutBtn').classList.add('hidden');
+        document.getElementById('signInBtn').classList.remove('hidden');
+        setMode('Mode: Public (GViz)');
+        document.getElementById('signHint').classList.remove('hidden');
+      });
+      document.getElementById('refreshBtn').addEventListener('click', loadLast);
+      document.getElementById('appendBtn').addEventListener('click', handleAppend);
+
+      loadLast();
+    });
+  </script>
+</body>
+</html>

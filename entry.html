@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Data Entry — Server append quick-setup</title>
+  <title>Data Entry — Shared endpoint with data.html</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .card{background:#fff;border-radius:1rem;box-shadow:0 8px 16px rgba(0,0,0,.06);padding:1rem}
@@ -19,7 +19,7 @@
 <body class="bg-gray-50 text-gray-900">
   <div id="needCfg" class="hidden banner bg-amber-100 text-amber-900 border border-amber-300 p-3">
     <div class="max-w-3xl mx-auto flex items-center justify-between gap-3">
-      <span><strong>Append endpoint not configured.</strong> Open Settings, paste your endpoint URL, click Save, then try again.</span>
+      <span><strong>Append endpoint not configured.</strong> Open Settings, paste your endpoint URL, click Save.</span>
       <a href="#settings" class="px-3 py-1 rounded bg-amber-900 text-white">Open Settings</a>
     </div>
   </div>
@@ -28,16 +28,16 @@
     <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold">Data Entry</h1>
-        <p class="text-gray-600 mt-1">Reads last row by Column A and appends new rows via your server endpoint. No Google sign in on this page.</p>
+        <p class="text-gray-600 mt-1">Shares the same backend endpoint as <span class="font-semibold">data.html</span>. Reads last row by Column A, appends new rows without browser sign in.</p>
       </div>
       <div class="flex items-center gap-3 flex-wrap">
         <a href="index.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Dashboard</a>
         <a href="data.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">All Rows</a>
-        <span id="modeChip" class="chip">Append mode: Server endpoint</span>
+        <span class="chip">Append mode: Server endpoint</span>
       </div>
     </header>
 
-    <!-- Settings -->
+    <!-- Settings (shared with data.html via localStorage keys) -->
     <section id="settings" class="card">
       <h2 class="text-lg font-semibold mb-3">Settings</h2>
       <div class="grid sm:grid-cols-2 gap-4">
@@ -50,12 +50,12 @@
           <input id="sheetName" class="input" value="Data" />
         </label>
         <label class="block sm:col-span-2">
-          <span class="text-sm text-gray-700">Append endpoint URL</span>
+          <span class="text-sm text-gray-700">Append endpoint URL (shared)</span>
           <input id="appendUrl" class="input" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" />
-          <p class="text-xs text-gray-500 mt-1">Accepts POST JSON { spreadsheetId, sheetName, row, secret } and appends with USER_ENTERED. Enable CORS.</p>
+          <p class="text-xs text-gray-500 mt-1">This value is shared with <code>data.html</code> using common localStorage keys. Endpoint must accept POST JSON { spreadsheetId, sheetName, row, secret }.</p>
         </label>
         <label class="block">
-          <span class="text-sm text-gray-700">Shared secret</span>
+          <span class="text-sm text-gray-700">Shared secret (shared)</span>
           <input id="appendSecret" class="input" placeholder="optional but recommended" />
         </label>
       </div>
@@ -78,7 +78,6 @@ function doPost(e){
   }
   var ss = SpreadsheetApp.openById(input.spreadsheetId);
   var sh = ss.getSheetByName(input.sheetName || 'Data');
-  // Expect row = [date, itd, prod]
   sh.appendRow(input.row || []);
   return ContentService.createTextOutput(JSON.stringify({ ok:true }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -86,7 +85,7 @@ function doPost(e){
 function doGet(){ return ContentService.createTextOutput('ok'); }
 </pre>
       </details>
-      <p class="text-xs text-gray-500 mt-2">Quick setup tip: you can also pass <code>?append=URL&secret=XYZ</code> in the page URL. The page will save these into localStorage automatically.</p>
+      <p class="text-xs text-gray-500 mt-2">Quick setup: open this page with <code>?append=URL&secret=XYZ</code> — values sync to shared storage used by both pages.</p>
     </section>
 
     <!-- Last row viewer -->
@@ -114,7 +113,7 @@ function doGet(){ return ContentService.createTextOutput('ok'); }
         <button id="refreshBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
         <span id="status" class="text-sm"></span>
       </div>
-      <p class="text-xs text-gray-500 mt-2">Date is sent as YYYY-MM-DD. Your endpoint should use USER_ENTERED so Sheets stores it as a date.</p>
+      <p class="text-xs text-gray-500 mt-2">Date is sent as YYYY-MM-DD. Your endpoint should use USER_ENTERED so Sheets stores it as a real date.</p>
     </section>
 
     <section class="card">
@@ -130,7 +129,53 @@ function doGet(){ return ContentService.createTextOutput('ok'); }
     const diag = (m)=>{ const d=$('diag'); d.textContent += m + "\n"; };
     const setStatus = (t, ok)=>{ const el=$('status'); el.textContent=t; el.className = 'text-sm ' + (ok? 'ok':'bad'); };
 
-    // ===== GViz read (public) =====
+    // ===== Shared storage keys so entry.html and data.html stay in sync =====
+    const ENDPOINT_KEYS = ['data:endpoint','append:endpoint','api:endpoint','backend:endpoint'];
+    const SECRET_KEYS   = ['data:secret','append:secret','api:secret','backend:secret'];
+
+    const readShared = (keys)=>{ for(const k of keys){ const v = localStorage.getItem(k); if (v) return v; } return ''; };
+    const writeShared = (keys, value)=>{ keys.forEach(k=>{ if(value) localStorage.setItem(k, value); else localStorage.removeItem(k); }); };
+
+    function loadCfgUI(){
+      const ep = readShared(ENDPOINT_KEYS);
+      const ss = readShared(SECRET_KEYS);
+      $('appendUrl').value = ep;
+      $('appendSecret').value = ss;
+    }
+    function saveCfg(){
+      const ep = $('appendUrl').value.trim();
+      const ss = $('appendSecret').value.trim();
+      writeShared(ENDPOINT_KEYS, ep);
+      writeShared(SECRET_KEYS, ss);
+      $('cfgStatus').textContent = ep? 'Saved' : 'Saved, but endpoint empty';
+      setTimeout(()=> $('cfgStatus').textContent='', 1500);
+      updateEndpointBanner();
+    }
+
+    // Sync across tabs/pages
+    window.addEventListener('storage', (e)=>{
+      if (ENDPOINT_KEYS.includes(e.key) || SECRET_KEYS.includes(e.key)) {
+        loadCfgUI(); updateEndpointBanner();
+      }
+    });
+
+    // Support quick setup via URL params: ?append=...&secret=...
+    function hydrateFromQuery(){
+      const q = new URLSearchParams(location.search);
+      const append = q.get('append');
+      const secret = q.get('secret');
+      if (append) writeShared(ENDPOINT_KEYS, append);
+      if (secret) writeShared(SECRET_KEYS, secret);
+    }
+
+    function updateEndpointBanner(){
+      const need = $('needCfg');
+      const ep = readShared(ENDPOINT_KEYS);
+      if (!ep) { need.classList.remove('hidden'); $('appendBtn').disabled = false; }
+      else { need.classList.add('hidden'); $('appendBtn').disabled = false; }
+    }
+
+    // ===== Public read via GViz =====
     function sanitizeAntiXSSI(t){ return t.replace(/^\)\]\}'\n/, '').replace(/^\/\*O_o\*\/\n/, ''); }
     function parseGviz(text){ const raw=sanitizeAntiXSSI(text); const m=raw.match(/google\.visualization\.Query\.setResponse\((.*)\);?/s); if(!m) throw new Error('Unexpected GViz format'); return JSON.parse(m[1]); }
     function gvizToValues(g){ const cols=(g.table?.cols||[]).map(c=>(c.label||c.id||'').trim()); const rows=(g.table?.rows||[]).map(r=>(r.c||[]).map(c=> c && c.v!=null ? c.v : '')); return [cols, ...rows]; }
@@ -138,34 +183,16 @@ function doGet(){ return ContentService.createTextOutput('ok'); }
 
     function hasValue(v){ return !(v==null || (typeof v==='string' && v.trim()==='')); }
     function fmtMaybeDate(v){ const d=new Date(v); return isNaN(d) ? (v==null?'':String(v)) : d.toISOString().slice(0,10); }
-    function findLastRowByColA(values){ if(!values || values.length<2) return { headers: values?.[0]||[], row:null, index:0 }; const headers=values[0]; for(let i=values.length-1;i>=1;i--){ const row=values[i]||[]; if(hasValue(row[0])) return { headers,row,index:i }; } return { headers,row:null,index:0 }; }
+    function findLastRowByColA(values){ if(!values || values.length<2) return { headers: values?.[0]||[], row:null, index:0 }; const headers=values[0]; for(let i=values.length-1; i>=1; i--){ const row=values[i]||[]; if(hasValue(row[0])) return { headers,row,index:i }; } return { headers,row:null,index:0 }; }
+
     function renderLast(headers,row,index){ const head=$('lastHead'); const body=$('lastBody'); head.innerHTML=''; body.innerHTML=''; headers.forEach(h=>{ const th=document.createElement('th'); th.className='p-2 text-left'; th.textContent=String(h||''); head.appendChild(th); }); if(row){ for(let c=0;c<headers.length;c++){ const td=document.createElement('td'); td.className='p-2 whitespace-nowrap'; const raw=row[c]; const v=(c===0)?fmtMaybeDate(raw):(raw==null?'':(typeof raw==='object'?JSON.stringify(raw):String(raw))); td.textContent=v; body.appendChild(td);} $('rowMeta').textContent = `Last data row index (by Column A): ${index}`; } else { const td=document.createElement('td'); td.className='p-2 text-sm text-gray-500'; td.colSpan=headers.length||1; td.textContent='No rows with a value in Column A yet'; body.appendChild(td); $('rowMeta').textContent=''; } }
 
-    async function loadLast(){ const id=$('sheetId').value.trim(); const name=$('sheetName').value.trim(); $('sheetLink').href=`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`; try{ const res=await fetch(buildGvizUrl(id,name)); const txt=await res.text(); const g=parseGviz(txt); const values=gvizToValues(g); const {headers,row,index}=findLastRowByColA(values); renderLast(headers,row,index); diag(`Loaded ${Math.max(0,(values||[]).length-1)} rows, ${headers.length} columns.`); }catch(e){ diag('Load failed: '+e.message); alert('Load failed: '+e.message); console.error(e); } }
+    async function loadLast(){ const id=$('sheetId').value.trim(); const name=$('sheetName').value.trim(); $('sheetLink').href=`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`; try{ const res=await fetch(buildGvizUrl(id,name)); const txt=await res.text(); const g=parseGviz(txt); const values=gvizToValues(g); const {headers,row,index}=findLastRowByColA(values); renderLast(headers,row,index); diag(`Loaded ${Math.max(0,(values||[]).length-1)} rows, ${headers.length} columns.`);} catch(e){ diag('Load failed: '+e.message); alert('Load failed: '+e.message); console.error(e);} }
 
-    // ===== Config storage =====
-    let APPEND_ENDPOINT = localStorage.getItem('append:endpoint') || '';
-    let APPEND_SECRET = localStorage.getItem('append:secret') || '';
-    function loadCfgUI(){ $('appendUrl').value = APPEND_ENDPOINT; $('appendSecret').value = APPEND_SECRET; }
-    function saveCfg(){ APPEND_ENDPOINT=$('appendUrl').value.trim(); APPEND_SECRET=$('appendSecret').value.trim(); localStorage.setItem('append:endpoint', APPEND_ENDPOINT); localStorage.setItem('append:secret', APPEND_SECRET); $('cfgStatus').textContent = APPEND_ENDPOINT? 'Saved' : 'Saved, but endpoint is empty'; setTimeout(()=>$('cfgStatus').textContent='', 1500); updateEndpointBanner(); }
-
-    // Support quick setup via URL params: ?append=...&secret=...
-    function hydrateFromQuery(){
-      const q = new URLSearchParams(location.search);
-      const append = q.get('append');
-      const secret = q.get('secret');
-      if (append){ APPEND_ENDPOINT = append; localStorage.setItem('append:endpoint', APPEND_ENDPOINT); }
-      if (secret){ APPEND_SECRET = secret; localStorage.setItem('append:secret', APPEND_SECRET); }
-    }
-
-    function updateEndpointBanner(){
-      const need = $('needCfg');
-      if (!APPEND_ENDPOINT) { need.classList.remove('hidden'); $('appendBtn').disabled = false; }
-      else { need.classList.add('hidden'); $('appendBtn').disabled = false; }
-    }
-
-    // ===== Robust server append =====
+    // ===== Append via shared endpoint =====
     async function appendViaServer(spreadsheetId, sheetName, row){
+      const APPEND_ENDPOINT = readShared(ENDPOINT_KEYS);
+      const APPEND_SECRET = readShared(SECRET_KEYS);
       if(!APPEND_ENDPOINT) throw new Error('No append endpoint configured in Settings.');
       const payload = { spreadsheetId, sheetName, row, secret: APPEND_SECRET };
       let res, text;
@@ -181,7 +208,7 @@ function doGet(){ return ContentService.createTextOutput('ok'); }
         throw new Error('Network error. Possible CORS or DNS issue. ' + networkErr.message);
       }
       try { text = await res.text(); } catch(_) { text = ''; }
-      let data = null; try { data = text ? JSON.parse(text) : null; } catch(parseErr) {}
+      let data = null; try { data = text ? JSON.parse(text) : null; } catch(_) {}
       if(!res.ok){ throw new Error(`Server append failed ${res.status}. Body: ${text || '[no body]'}`); }
       return data || { ok:true, raw:text };
     }
@@ -193,7 +220,8 @@ function doGet(){ return ContentService.createTextOutput('ok'); }
       const itd=$('inITD').value.trim();
       const prod=$('inProd').value.trim();
       if(!date || itd==='' || prod===''){ setStatus('Please fill date, ITD production and production.', false); return; }
-      if(!APPEND_ENDPOINT){ updateEndpointBanner(); setStatus('Please configure the Append endpoint in Settings.', false); return; }
+      const ep = readShared(ENDPOINT_KEYS);
+      if(!ep){ updateEndpointBanner(); setStatus('Please configure the Append endpoint in Settings.', false); return; }
       setStatus('Appending…', true);
       try{
         const row=[date, Number(itd), Number(prod)];
@@ -207,10 +235,11 @@ function doGet(){ return ContentService.createTextOutput('ok'); }
 
     // ===== Endpoint checker =====
     async function pingEndpoint(){
-      if(!APPEND_ENDPOINT){ $('cfgStatus').textContent='Add your endpoint first'; updateEndpointBanner(); return; }
+      const ep = readShared(ENDPOINT_KEYS);
+      if(!ep){ $('cfgStatus').textContent='Add your endpoint first'; updateEndpointBanner(); return; }
       $('cfgStatus').textContent='Pinging…';
       try{
-        const res = await fetch(APPEND_ENDPOINT + (APPEND_ENDPOINT.includes('?')?'&':'?') + 'ping=1', { method:'GET', mode:'cors', credentials:'omit' });
+        const res = await fetch(ep + (ep.includes('?')?'&':'?') + 'ping=1', { method:'GET', mode:'cors', credentials:'omit' });
         $('cfgStatus').textContent = res.ok ? 'Endpoint reachable' : `Ping failed ${res.status}`;
       } catch(e){ $('cfgStatus').textContent = 'Ping error: ' + e.message; }
       setTimeout(()=>$('cfgStatus').textContent='', 2500);

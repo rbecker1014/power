@@ -151,57 +151,67 @@
   }
   function toISOyyyyMMdd(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString().slice(0,10); }
 
-  // Build rows to write so cumulative totals match exactly
-  // Returns { rowsToWrite, startRow } where rowsToWrite is an array of [A,B,C]
-  function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
-    // valuesABC: A1:C..., with headers in row 1
-    const last = findLastRowByA(valuesABC);
-    if (!last.row) throw new Error('No last row found. Make sure your sheet has a header row and at least one data row.');
-    const lastDateStr = last.row[0];
-    const lastITD = Number(last.row[1]);
-    if (!Number.isFinite(lastITD)) throw new Error('Last ITD is not numeric. Cannot extrapolate.');
-    const lastDate = toDateOnly(lastDateStr);
-    const inputDate = toDateOnly(inputDateStr);
+// Build rows to fill gaps and final day.
+// valuesABC: A1:C... with headers in row 1
+// Returns { startRow1Based, rowsToWrite }
+function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
+  const last = findLastRowByA(valuesABC);
+  if (!last.row) throw new Error('No last row found. Ensure there is a header row and at least one data row.');
 
-    const gapDays = daysBetween(lastDate, inputDate); // e.g. last=1/9, input=1/12 => 3
-    if (gapDays < 1) throw new Error('Input date must be after the last recorded date.');
-
-    // If exactly next day, just write one row
-    if (gapDays === 1){
-      return {
-        startRow: last.index + 1, // next row index (1-based)
-        rowsToWrite: [[ toISOyyyyMMdd(inputDate), Number(inputITD), Number(inputProd) ]]
-      };
-    }
-
-    // There are missing days to fill
-    const missingCount = gapDays - 1; // days between lastDate+1 and inputDate-1
-    const deltaITD = Number(inputITD) - lastITD;
-    const missingSum = deltaITD - Number(inputProd);
-    if (missingSum < -1e-9){
-      throw new Error('Numbers inconsistent: input ITD is less than last ITD plus input Prod.');
-    }
-
-    // Even distribution for missing days, remainder to the last missing day
-    const even = missingCount > 0 ? missingSum / missingCount : 0;
-    const rows = [];
-    let runningITD = lastITD;
-    let allocated = 0;
-
-    for (let i = 1; i <= missingCount; i++){
-      let prod = i < missingCount ? even : (missingSum - allocated);
-      // Clean tiny floating error
-      if (Math.abs(prod) < 1e-12) prod = 0;
-      runningITD += prod;
-      rows.push([ toISOyyyyMMdd(addDays(lastDate, i)), Number(runningITD), Number(prod) ]);
-      allocated += prod;
-    }
-
-    // Final input day
-    rows.push([ toISOyyyyMMdd(inputDate), Number(inputITD), Number(inputProd) ]);
-
-    return { startRow: last.index + 1, rowsToWrite: rows };
+  // Column B is numeric except the header
+  const lastITD = toNumber(last.row[1]);
+  if (!Number.isFinite(lastITD)) {
+    throw new Error('Last ITD missing or not numeric in Column B.');
   }
+
+  const lastDate = toDateOnly(last.row[0]);
+  const inputDate = toDateOnly(inputDateStr);
+
+  const gapDays = daysBetween(lastDate, inputDate);   // input - last
+  if (gapDays < 1) throw new Error('Input date must be after the last recorded date.');
+
+  // Next row after last non empty A
+  const startRow1Based = last.index + 1;
+
+  // Exactly next day: one row only
+  if (gapDays === 1){
+    return {
+      startRow1Based,
+      rowsToWrite: [[ toISOyyyyMMdd(inputDate), Number(inputITD), Number(inputProd) ]]
+    };
+  }
+
+  // Missing days exist
+  const missingCount = gapDays - 1;
+  const deltaITD = Number(inputITD) - lastITD;
+  const missingSum = deltaITD - Number(inputProd);
+  if (!Number.isFinite(deltaITD) || !Number.isFinite(missingSum)){
+    throw new Error('Input ITD or Prod is not a valid number.');
+  }
+  if (missingSum < -1e-9){
+    throw new Error('Numbers inconsistent: input ITD is less than last ITD plus input Prod.');
+  }
+
+  // Evenly distribute missing production. Put tiny remainder on the last missing day.
+  const even = missingCount > 0 ? missingSum / missingCount : 0;
+  const rows = [];
+  let runningITD = lastITD;
+  let allocated = 0;
+
+  for (let i = 1; i <= missingCount; i++){
+    let prod = i < missingCount ? even : (missingSum - allocated);
+    if (Math.abs(prod) < 1e-12) prod = 0;
+    runningITD += prod;
+    rows.push([ toISOyyyyMMdd(addDays(lastDate, i)), Number(runningITD), Number(prod) ]);
+    allocated += prod;
+  }
+
+  // Final input day
+  rows.push([ toISOyyyyMMdd(inputDate), Number(inputITD), Number(inputProd) ]);
+
+  return { startRow1Based, rowsToWrite: rows };
+}
+
 
   function renderLast(headers, row, index){
     const thead = $('lastHead'), tbody = $('lastBody');
@@ -255,10 +265,11 @@
       const plan = buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd);
 
       // Write one contiguous block starting at next row
-      const start = plan.startRow + 1; // startRow is last.index+1; add 1 to get the first empty row number
-      const end = start + plan.rowsToWrite.length - 1;
-      const a1 = `${name}!A${start}:C${end}`;
-      await sheetsUpdate(a1, plan.rowsToWrite);
+const start = plan.startRow1Based;                      // first empty row
+const end = start + plan.rowsToWrite.length - 1;
+const a1 = `${name}!A${start}:C${end}`;
+await sheetsUpdate(a1, plan.rowsToWrite);
+
 
       status.textContent = `Saved ${plan.rowsToWrite.length} row(s) from A${start}:C${end}`; status.className='text-sm ok';
       $('inDate').value = todayISO(); $('inITD').value=''; $('inProd').value='';

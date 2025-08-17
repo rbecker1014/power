@@ -72,7 +72,7 @@
         <button id="appendBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" disabled>Append Row</button>
         <span id="status" class="text-sm"></span>
       </div>
-      <p class="text-xs text-gray-500 mt-2">Writes to the first row with Column A empty. If no gaps exist, writes to the next new row at the bottom.</p>
+      <p class="text-xs text-gray-500 mt-2">Writes to the next row after the last non empty value in Column A.</p>
     </section>
 
     <!-- Diagnostics -->
@@ -123,7 +123,7 @@
     return res.json();
   }
 
-  // Find last non-empty A for display
+  // Finder for display: last non empty A
   function findLastRowByA(values){
     if (!values || values.length < 2) return { headers: values?.[0]||[], row: null, index: 0 };
     const headers = values[0];
@@ -135,13 +135,132 @@
     return { headers, row: null, index: 0 };
   }
 
-  // Find first empty A for writing
-  function findFirstEmptyRowByA(values){
-    // values is A1:Z... with headers at row 1
-    if (!values || values.length === 0) return 2; // write on row 2
-    // Ensure at least header row exists
+  // Finder for writing: next row after last non empty A
+  function findNextRowAfterLastNonEmptyA(values){
+    // values contains A1:A... or A1:Z..., with headers at row 1
+    if (!values || values.length < 2) return 2; // write row 2 if only header
+    let last = 1; // header row
     for (let i = 2; i <= values.length; i++){
-      const row = values[i-1] || []; // 1-based to 0-based
+      const row = values[i - 1] || [];
       const a = row[0];
-      if (a == null || String(a).trim()
+      if (a != null && String(a).trim() !== '') last = i;
+    }
+    return last + 1;
+  }
 
+  function renderLast(headers, row, index){
+    const thead = $('lastHead'), tbody = $('lastBody');
+    thead.innerHTML = ''; tbody.innerHTML = '';
+    headers.forEach(h => { const th=document.createElement('th'); th.className='p-2 text-left'; th.textContent=String(h||''); thead.appendChild(th); });
+    if (row){
+      for (let c=0;c<headers.length;c++){
+        const td=document.createElement('td'); td.className='p-2 whitespace-nowrap';
+        const raw=row[c];
+        let v = raw == null ? '' : String(raw);
+        const maybe = new Date(v);
+        if (c === 0 && !isNaN(maybe)) v = maybe.toISOString().slice(0,10);
+        td.textContent = v;
+        tbody.appendChild(td);
+      }
+      $('rowMeta').textContent = `Last data row index (1-based) by Column A: ${index}`;
+    } else {
+      const td = document.createElement('td'); td.className='p-2 text-sm text-gray-500'; td.colSpan=headers.length||1; td.textContent='No data rows yet'; tbody.appendChild(td);
+      $('rowMeta').textContent = '';
+    }
+  }
+
+  async function loadLast(){
+    const name = $('sheetName').value.trim();
+    $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${$('sheetId').value.trim()}/edit#gid=0`;
+    try{
+      const values = await sheetsGet(`${name}!A1:Z10000`);
+      const r = findLastRowByA(values);
+      renderLast(r.headers, r.row, r.index);
+      log(`Loaded ${Math.max(0,(values||[]).length-1)} rows.`);
+    } catch(e){
+      log('Load failed: ' + e.message);
+      alert('Load failed: ' + e.message);
+    }
+  }
+
+  async function appendRow(){
+    const name = $('sheetName').value.trim();
+    const date = $('inDate').value.trim();
+    const itd  = $('inITD').value.trim();
+    const prod = $('inProd').value.trim();
+    const status = $('status');
+
+    if (!date || itd === '' || prod === ''){
+      status.textContent = 'Fill all three fields'; status.className='text-sm bad'; return;
+    }
+
+    status.textContent = 'Appending…'; status.className='text-sm';
+    try{
+      // Read only column A for speed
+      const colAValues = await sheetsGet(`${name}!A1:A10000`);
+      const target = findNextRowAfterLastNonEmptyA(colAValues);
+      const a1 = `${name}!A${target}:C${target}`;
+      await sheetsUpdate(a1, [[date, Number(itd), Number(prod)]]);
+      status.textContent = `Row saved at A${target}:C${target}`; status.className='text-sm ok';
+
+      $('inDate').value = todayISO(); $('inITD').value=''; $('inProd').value='';
+      await loadLast();
+    } catch(e){
+      status.textContent = 'Append failed: ' + e.message; status.className='text-sm bad';
+      log('Append failed: ' + e.message);
+    }
+  }
+
+  // GIS init with onload hook and a fallback poll
+  window.__gisLoaded = function(){
+    try{
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: SHEETS_SCOPE,
+        callback: (resp) => {
+          if (resp && resp.access_token){
+            accessToken = resp.access_token;
+            setSignedInUI(true);
+            loadLast();
+          }
+        }
+      });
+      log('GIS loaded');
+    } catch(e){
+      log('GIS init error: ' + e.message);
+    }
+  };
+
+  function requestSignIn(){
+    if (!tokenClient){
+      log('Google Identity not ready yet.'); alert('Google Identity not ready yet.'); return;
+    }
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  }
+
+  // Wire up UI
+  window.addEventListener('DOMContentLoaded', ()=>{
+    log('JS ready');
+    $('inDate').value = todayISO();
+    $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${$('sheetId').value.trim()}/edit#gid=0`;
+
+    $('refreshBtn').addEventListener('click', ()=>{
+      if (!accessToken){ alert('Sign in first to read via Sheets API.'); return; }
+      loadLast();
+    });
+    $('appendBtn').addEventListener('click', appendRow);
+    $('signInBtn').addEventListener('click', requestSignIn);
+
+    setSignedInUI(false);
+
+    // Fallback poll in case script onload is blocked
+    const t = setInterval(()=>{
+      if (window.google && google.accounts && google.accounts.oauth2){
+        clearInterval(t);
+        window.__gisLoaded();
+      }
+    }, 300);
+  });
+  </script>
+</body>
+</html>

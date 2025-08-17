@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Data Entry — OAuth Sheets API</title>
+  <title>Data Entry — Solar</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client" async defer onload="window.__gisLoaded && window.__gisLoaded()"></script>
   <style>
     .card{background:#fff;border-radius:1rem;box-shadow:0 8px 16px rgba(0,0,0,.06);padding:1rem}
@@ -72,7 +71,7 @@
         <button id="appendBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" disabled>Append Row</button>
         <span id="status" class="text-sm"></span>
       </div>
-      <p class="text-xs text-gray-500 mt-2">If your date skips days, missing dates are auto-filled with extrapolated ITD and Prod so cumulative totals match.</p>
+      <p class="text-xs text-gray-500 mt-2">If your date skips days, missing dates are auto-filled with extrapolated ITD and Prod so the cumulative matches your input ITD.</p>
     </section>
 
     <!-- Diagnostics -->
@@ -94,14 +93,31 @@
 
   // Helpers
   const $ = (id)=>document.getElementById(id);
-  const todayISO = ()=> new Date().toISOString().slice(0,10);
+  function todayLocalYMD(){
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
   const log = (m)=>{ const d=$('diag'); d.textContent += m + "\n"; };
 
-  function setSignedInUI(isIn){
-    $('whoAmI').textContent = isIn ? 'Signed in' : 'Signed out';
-    $('appendBtn').disabled = !isIn;
+  // Robust numeric parser
+  function toNumber(v){
+    if (v == null) return NaN;
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string'){
+      let s = v.trim();
+      if (!s) return NaN;
+      s = s.replace(/[, ]+/g,'');       // remove commas and spaces
+      s = s.replace(/[^0-9.+-Ee]/g,''); // strip symbols like kWh or $
+      const n = Number(s);
+      return Number.isFinite(n) ? n : NaN;
+    }
+    return NaN;
   }
 
+  // Sheets API helpers
   async function sheetsGet(rangeA1){
     const id = $('sheetId').value.trim();
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1)}?majorDimension=ROWS`;
@@ -123,7 +139,7 @@
     return res.json();
   }
 
-  // Finder for display: last non empty A
+  // Finders
   function findLastRowByA(values){
     if (!values || values.length < 2) return { headers: values?.[0]||[], row: null, index: 0 };
     const headers = values[0];
@@ -135,9 +151,9 @@
     return { headers, row: null, index: 0 };
   }
 
-  // Date math in local time
-  function toDateOnly(str){
-    const d = new Date(str);
+  // Date helpers in local time
+  function dateOnlyFromAny(x){
+    const d = new Date(x);
     return new Date(d.getFullYear(), d.getMonth(), d.getDate());
   }
   function addDays(d, n){
@@ -145,98 +161,101 @@
     x.setDate(x.getDate() + n);
     return x;
   }
-  function daysBetween(a, b){ // b - a in days
-    const ms = toDateOnly(b) - toDateOnly(a);
+  function ymd(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+  function daysBetween(a, b){ // b - a
+    const ms = dateOnlyFromAny(b) - dateOnlyFromAny(a);
     return Math.round(ms / 86400000);
   }
-  function toISOyyyyMMdd(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString().slice(0,10); }
 
-// Build rows to fill gaps and final day.
-// valuesABC: A1:C... with headers in row 1
-// Returns { startRow1Based, rowsToWrite }
-function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
-  const last = findLastRowByA(valuesABC);
-  if (!last.row) throw new Error('No last row found. Ensure there is a header row and at least one data row.');
+  // Build rows to fill gaps and final day. Column B ITD is numeric except header.
+  // Returns { startRow1Based, rowsToWrite }
+  function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
+    const last = findLastRowByA(valuesABC);
+    if (!last.row) throw new Error('No last row found. Ensure there is a header row and at least one data row.');
 
-  // Column B is numeric except the header
-  const lastITD = toNumber(last.row[1]);
-  if (!Number.isFinite(lastITD)) {
-    throw new Error('Last ITD missing or not numeric in Column B.');
+    const lastITD = toNumber(last.row[1]);
+    if (!Number.isFinite(lastITD)) throw new Error('Last ITD missing or not numeric in Column B.');
+
+    const lastDate = dateOnlyFromAny(last.row[0]);
+    const inputDate = dateOnlyFromAny(inputDateStr);
+
+    const gapDays = daysBetween(lastDate, inputDate); // input - last
+    if (gapDays < 1) throw new Error('Input date must be after the last recorded date.');
+
+    const startRow1Based = last.index + 1; // next row after last non empty A
+
+    // Exactly next day: one row
+    if (gapDays === 1){
+      return {
+        startRow1Based,
+        rowsToWrite: [[ ymd(inputDate), Number(inputITD), Number(inputProd) ]]
+      };
+    }
+
+    // Missing days exist
+    const missingCount = gapDays - 1;
+    const deltaITD = Number(inputITD) - lastITD;
+    const missingSum = deltaITD - Number(inputProd);
+    if (!Number.isFinite(deltaITD) || !Number.isFinite(missingSum)){
+      throw new Error('Input ITD or Prod is not a valid number.');
+    }
+    if (missingSum < -1e-9){
+      throw new Error('Numbers inconsistent: input ITD is less than last ITD plus input Prod.');
+    }
+
+    const even = missingCount > 0 ? missingSum / missingCount : 0;
+    const rows = [];
+    let runningITD = lastITD;
+    let allocated = 0;
+
+    for (let i = 1; i <= missingCount; i++){
+      let prod = i < missingCount ? even : (missingSum - allocated);
+      if (Math.abs(prod) < 1e-12) prod = 0;
+      runningITD += prod;
+      rows.push([ ymd(addDays(lastDate, i)), Number(runningITD), Number(prod) ]);
+      allocated += prod;
+    }
+
+    // Final input day
+    rows.push([ ymd(inputDate), Number(inputITD), Number(inputProd) ]);
+
+    return { startRow1Based, rowsToWrite: rows };
   }
 
-  const lastDate = toDateOnly(last.row[0]);
-  const inputDate = toDateOnly(inputDateStr);
-
-  const gapDays = daysBetween(lastDate, inputDate);   // input - last
-  if (gapDays < 1) throw new Error('Input date must be after the last recorded date.');
-
-  // Next row after last non empty A
-  const startRow1Based = last.index + 1;
-
-  // Exactly next day: one row only
-  if (gapDays === 1){
-    return {
-      startRow1Based,
-      rowsToWrite: [[ toISOyyyyMMdd(inputDate), Number(inputITD), Number(inputProd) ]]
-    };
-  }
-
-  // Missing days exist
-  const missingCount = gapDays - 1;
-  const deltaITD = Number(inputITD) - lastITD;
-  const missingSum = deltaITD - Number(inputProd);
-  if (!Number.isFinite(deltaITD) || !Number.isFinite(missingSum)){
-    throw new Error('Input ITD or Prod is not a valid number.');
-  }
-  if (missingSum < -1e-9){
-    throw new Error('Numbers inconsistent: input ITD is less than last ITD plus input Prod.');
-  }
-
-  // Evenly distribute missing production. Put tiny remainder on the last missing day.
-  const even = missingCount > 0 ? missingSum / missingCount : 0;
-  const rows = [];
-  let runningITD = lastITD;
-  let allocated = 0;
-
-  for (let i = 1; i <= missingCount; i++){
-    let prod = i < missingCount ? even : (missingSum - allocated);
-    if (Math.abs(prod) < 1e-12) prod = 0;
-    runningITD += prod;
-    rows.push([ toISOyyyyMMdd(addDays(lastDate, i)), Number(runningITD), Number(prod) ]);
-    allocated += prod;
-  }
-
-  // Final input day
-  rows.push([ toISOyyyyMMdd(inputDate), Number(inputITD), Number(inputProd) ]);
-
-  return { startRow1Based, rowsToWrite: rows };
-}
-
-
+  // Render last row table
   function renderLast(headers, row, index){
-    const thead = $('lastHead'), tbody = $('lastBody');
+    const thead = document.getElementById('lastHead');
+    const tbody = document.getElementById('lastBody');
     thead.innerHTML = ''; tbody.innerHTML = '';
-    headers.forEach(h => { const th=document.createElement('th'); th.className='p-2 text-left'; th.textContent=String(h||''); thead.appendChild(th); });
+    headers.forEach(h => {
+      const th=document.createElement('th');
+      th.className='p-2 text-left'; th.textContent=String(h||''); thead.appendChild(th);
+    });
     if (row){
       for (let c=0;c<headers.length;c++){
         const td=document.createElement('td'); td.className='p-2 whitespace-nowrap';
         const raw=row[c];
         let v = raw == null ? '' : String(raw);
         const maybe = new Date(v);
-        if (c === 0 && !isNaN(maybe)) v = toISOyyyyMMdd(maybe);
+        if (c === 0 && !isNaN(maybe)) v = ymd(maybe);
         td.textContent = v;
         tbody.appendChild(td);
       }
-      $('rowMeta').textContent = `Last data row index (1-based) by Column A: ${index}`;
+      document.getElementById('rowMeta').textContent = `Last data row index by Column A: ${index}`;
     } else {
       const td = document.createElement('td'); td.className='p-2 text-sm text-gray-500'; td.colSpan=headers.length||1; td.textContent='No data rows yet'; tbody.appendChild(td);
-      $('rowMeta').textContent = '';
+      document.getElementById('rowMeta').textContent = '';
     }
   }
 
   async function loadLast(){
-    const name = $('sheetName').value.trim();
-    $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${$('sheetId').value.trim()}/edit#gid=0`;
+    const name = document.getElementById('sheetName').value.trim();
+    document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${document.getElementById('sheetId').value.trim()}/edit#gid=0`;
     try{
       const values = await sheetsGet(`${name}!A1:C10000`);
       const r = findLastRowByA(values);
@@ -249,14 +268,14 @@ function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
   }
 
   async function appendRow(){
-    const name = $('sheetName').value.trim();
-    const inputDateStr = $('inDate').value.trim();
-    const inputITD = Number($('inITD').value.trim());
-    const inputProd = Number($('inProd').value.trim());
-    const status = $('status');
+    const name = document.getElementById('sheetName').value.trim();
+    const inputDateStr = document.getElementById('inDate').value.trim();
+    const inputITD = toNumber(document.getElementById('inITD').value.trim());
+    const inputProd = toNumber(document.getElementById('inProd').value.trim());
+    const status = document.getElementById('status');
 
     if (!inputDateStr || !Number.isFinite(inputITD) || !Number.isFinite(inputProd)){
-      status.textContent = 'Fill all three fields with valid numbers'; status.className='text-sm bad'; return;
+      status.textContent = 'Enter a valid Date, ITD, and Prod'; status.className='text-sm bad'; return;
     }
 
     status.textContent = 'Calculating and writing…'; status.className='text-sm';
@@ -264,15 +283,15 @@ function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
       const valuesABC = await sheetsGet(`${name}!A1:C10000`);
       const plan = buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd);
 
-      // Write one contiguous block starting at next row
-const start = plan.startRow1Based;                      // first empty row
-const end = start + plan.rowsToWrite.length - 1;
-const a1 = `${name}!A${start}:C${end}`;
-await sheetsUpdate(a1, plan.rowsToWrite);
+      // Write contiguous block starting at the next row after last non empty A
+      const start = plan.startRow1Based;                 // first empty row
+      const end = start + plan.rowsToWrite.length - 1;
+      const a1 = `${name}!A${start}:C${end}`;
+      await sheetsUpdate(a1, plan.rowsToWrite);
 
-
-      status.textContent = `Saved ${plan.rowsToWrite.length} row(s) from A${start}:C${end}`; status.className='text-sm ok';
-      $('inDate').value = todayISO(); $('inITD').value=''; $('inProd').value='';
+      status.textContent = `Saved ${plan.rowsToWrite.length} row(s) at A${start}:C${end}`; status.className='text-sm ok';
+      document.getElementById('inDate').value = todayLocalYMD();
+      document.getElementById('inITD').value=''; document.getElementById('inProd').value='';
       await loadLast();
     } catch(e){
       status.textContent = 'Append failed: ' + e.message; status.className='text-sm bad';
@@ -289,7 +308,8 @@ await sheetsUpdate(a1, plan.rowsToWrite);
         callback: (resp) => {
           if (resp && resp.access_token){
             accessToken = resp.access_token;
-            setSignedInUI(true);
+            document.getElementById('whoAmI').textContent = 'Signed in';
+            document.getElementById('appendBtn').disabled = false;
             loadLast();
           }
         }
@@ -310,19 +330,17 @@ await sheetsUpdate(a1, plan.rowsToWrite);
   // Wire up UI
   window.addEventListener('DOMContentLoaded', ()=>{
     log('JS ready');
-    $('inDate').value = todayISO();
-    $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${$('sheetId').value.trim()}/edit#gid=0`;
+    document.getElementById('inDate').value = todayLocalYMD();
+    document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${document.getElementById('sheetId').value.trim()}/edit#gid=0`;
 
-    $('refreshBtn').addEventListener('click', ()=>{
+    document.getElementById('refreshBtn').addEventListener('click', ()=>{
       if (!accessToken){ alert('Sign in first to read via Sheets API.'); return; }
       loadLast();
     });
-    $('appendBtn').addEventListener('click', appendRow);
-    $('signInBtn').addEventListener('click', requestSignIn);
+    document.getElementById('appendBtn').addEventListener('click', appendRow);
+    document.getElementById('signInBtn').addEventListener('click', requestSignIn);
 
-    setSignedInUI(false);
-
-    // Fallback poll in case script onload is blocked
+    // Fallback poll in case the GIS script loads late
     const t = setInterval(()=>{
       if (window.google && google.accounts && google.accounts.oauth2){
         clearInterval(t);

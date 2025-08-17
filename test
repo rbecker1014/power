@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Entry — OAuth Sheets API</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer onload="window.__gisLoaded && window.__gisLoaded()"></script>
+  <style>
+    .card{background:#fff;border-radius:1rem;box-shadow:0 8px 16px rgba(0,0,0,.06);padding:1rem}
+    .input{border:1px solid #e5e7eb;border-radius:.5rem;padding:.5rem .75rem;width:100%}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace}
+    thead th{position:sticky;top:0;background:#fff;z-index:1}
+    .ok{color:#065f46}.bad{color:#991b1b}
+    .chip{display:inline-block;border-radius:9999px;padding:.15rem .55rem;background:#f3f4f6;font-size:.75rem}
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-3xl mx-auto p-6 space-y-6">
+    <header class="flex items-center justify-between gap-3 flex-wrap">
+      <h1 class="text-2xl font-bold">Data Entry</h1>
+      <nav class="flex items-center gap-2 text-sm">
+        <a class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" href="index.html">Dashboard</a>
+        <a class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" href="data.html">All Rows</a>
+        <button id="signInBtn" class="px-3 py-1 rounded bg-gray-900 text-white">Sign in</button>
+        <span id="whoAmI" class="chip">Signed out</span>
+      </nav>
+    </header>
+
+    <!-- Connection -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-3">Connection</h2>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="text-sm text-gray-700">Google Sheet ID</span>
+          <input id="sheetId" class="input" value="193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-gray-700">Sheet name</span>
+          <input id="sheetName" class="input" value="Data" />
+        </label>
+      </div>
+      <div class="flex items-center gap-3 mt-3">
+        <button id="refreshBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
+        <a id="sheetLink" href="#" target="_blank" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
+        <span id="modeChip" class="text-sm text-gray-600">Mode: Private (Sheets API)</span>
+      </div>
+    </section>
+
+    <!-- Last row -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-3">Last row where Column A is not blank</h2>
+      <div class="overflow-auto border border-gray-200 rounded-lg">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-100 text-gray-700"><tr id="lastHead"></tr></thead>
+          <tbody><tr id="lastBody"></tr></tbody>
+        </table>
+      </div>
+      <div id="rowMeta" class="text-xs text-gray-500 mt-2"></div>
+    </section>
+
+    <!-- Append -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-3">Append a new row</h2>
+      <div class="grid md:grid-cols-3 gap-4">
+        <label class="block"><span class="text-sm text-gray-700">Date (A)</span><input id="inDate" type="date" class="input" /></label>
+        <label class="block"><span class="text-sm text-gray-700">ITD Production (B)</span><input id="inITD" type="number" step="any" class="input" placeholder="12345" /></label>
+        <label class="block"><span class="text-sm text-gray-700">Daily Production (C)</span><input id="inProd" type="number" step="any" class="input" placeholder="kWh" /></label>
+      </div>
+      <div class="flex items-center gap-3 mt-4">
+        <button id="appendBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" disabled>Append Row</button>
+        <span id="status" class="text-sm"></span>
+      </div>
+      <p class="text-xs text-gray-500 mt-2">If your date skips days, missing dates are auto-filled with extrapolated ITD and Prod so cumulative totals match.</p>
+    </section>
+
+    <!-- Diagnostics -->
+    <section class="card">
+      <h2 class="text-lg font-semibold mb-2">Diagnostics</h2>
+      <pre id="diag" class="mono text-xs whitespace-pre-wrap"></pre>
+    </section>
+  </div>
+
+  <script>
+  'use strict';
+
+  // OAuth config
+  const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
+  const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+
+  let accessToken = null;
+  let tokenClient = null;
+
+  // Helpers
+  const $ = (id)=>document.getElementById(id);
+  const todayISO = ()=> new Date().toISOString().slice(0,10);
+  const log = (m)=>{ const d=$('diag'); d.textContent += m + "\n"; };
+
+  function setSignedInUI(isIn){
+    $('whoAmI').textContent = isIn ? 'Signed in' : 'Signed out';
+    $('appendBtn').disabled = !isIn;
+  }
+
+  async function sheetsGet(rangeA1){
+    const id = $('sheetId').value.trim();
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1)}?majorDimension=ROWS`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) throw new Error(`Sheets GET ${res.status}: ${await res.text()}`);
+    const j = await res.json();
+    return j.values || [];
+  }
+
+  async function sheetsUpdate(rangeA1, values2d){
+    const id = $('sheetId').value.trim();
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1)}?valueInputOption=USER_ENTERED`;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: values2d })
+    });
+    if (!res.ok) throw new Error(`Sheets UPDATE ${res.status}: ${await res.text()}`);
+    return res.json();
+  }
+
+  // Finder for display: last non empty A
+  function findLastRowByA(values){
+    if (!values || values.length < 2) return { headers: values?.[0]||[], row: null, index: 0 };
+    const headers = values[0];
+    for (let i = values.length - 1; i >= 1; i--){
+      const row = values[i] || [];
+      const a = row[0];
+      if (a != null && String(a).trim() !== '') return { headers, row, index: i };
+    }
+    return { headers, row: null, index: 0 };
+  }
+
+  // Date math in local time
+  function toDateOnly(str){
+    const d = new Date(str);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  function addDays(d, n){
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    x.setDate(x.getDate() + n);
+    return x;
+  }
+  function daysBetween(a, b){ // b - a in days
+    const ms = toDateOnly(b) - toDateOnly(a);
+    return Math.round(ms / 86400000);
+  }
+  function toISOyyyyMMdd(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString().slice(0,10); }
+
+  // Build rows to write so cumulative totals match exactly
+  // Returns { rowsToWrite, startRow } where rowsToWrite is an array of [A,B,C]
+  function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
+    // valuesABC: A1:C..., with headers in row 1
+    const last = findLastRowByA(valuesABC);
+    if (!last.row) throw new Error('No last row found. Make sure your sheet has a header row and at least one data row.');
+    const lastDateStr = last.row[0];
+    const lastITD = Number(last.row[1]);
+    if (!Number.isFinite(lastITD)) throw new Error('Last ITD is not numeric. Cannot extrapolate.');
+    const lastDate = toDateOnly(lastDateStr);
+    const inputDate = toDateOnly(inputDateStr);
+
+    const gapDays = daysBetween(lastDate, inputDate); // e.g. last=1/9, input=1/12 => 3
+    if (gapDays < 1) throw new Error('Input date must be after the last recorded date.');
+
+    // If exactly next day, just write one row
+    if (gapDays === 1){
+      return {
+        startRow: last.index + 1, // next row index (1-based)
+        rowsToWrite: [[ toISOyyyyMMdd(inputDate), Number(inputITD), Number(inputProd) ]]
+      };
+    }
+
+    // There are missing days to fill
+    const missingCount = gapDays - 1; // days between lastDate+1 and inputDate-1
+    const deltaITD = Number(inputITD) - lastITD;
+    const missingSum = deltaITD - Number(inputProd);
+    if (missingSum < -1e-9){
+      throw new Error('Numbers inconsistent: input ITD is less than last ITD plus input Prod.');
+    }
+
+    // Even distribution for missing days, remainder to the last missing day
+    const even = missingCount > 0 ? missingSum / missingCount : 0;
+    const rows = [];
+    let runningITD = lastITD;
+    let allocated = 0;
+
+    for (let i = 1; i <= missingCount; i++){
+      let prod = i < missingCount ? even : (missingSum - allocated);
+      // Clean tiny floating error
+      if (Math.abs(prod) < 1e-12) prod = 0;
+      runningITD += prod;
+      rows.push([ toISOyyyyMMdd(addDays(lastDate, i)), Number(runningITD), Number(prod) ]);
+      allocated += prod;
+    }
+
+    // Final input day
+    rows.push([ toISOyyyyMMdd(inputDate), Number(inputITD), Number(inputProd) ]);
+
+    return { startRow: last.index + 1, rowsToWrite: rows };
+  }
+
+  function renderLast(headers, row, index){
+    const thead = $('lastHead'), tbody = $('lastBody');
+    thead.innerHTML = ''; tbody.innerHTML = '';
+    headers.forEach(h => { const th=document.createElement('th'); th.className='p-2 text-left'; th.textContent=String(h||''); thead.appendChild(th); });
+    if (row){
+      for (let c=0;c<headers.length;c++){
+        const td=document.createElement('td'); td.className='p-2 whitespace-nowrap';
+        const raw=row[c];
+        let v = raw == null ? '' : String(raw);
+        const maybe = new Date(v);
+        if (c === 0 && !isNaN(maybe)) v = toISOyyyyMMdd(maybe);
+        td.textContent = v;
+        tbody.appendChild(td);
+      }
+      $('rowMeta').textContent = `Last data row index (1-based) by Column A: ${index}`;
+    } else {
+      const td = document.createElement('td'); td.className='p-2 text-sm text-gray-500'; td.colSpan=headers.length||1; td.textContent='No data rows yet'; tbody.appendChild(td);
+      $('rowMeta').textContent = '';
+    }
+  }
+
+  async function loadLast(){
+    const name = $('sheetName').value.trim();
+    $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${$('sheetId').value.trim()}/edit#gid=0`;
+    try{
+      const values = await sheetsGet(`${name}!A1:C10000`);
+      const r = findLastRowByA(values);
+      renderLast(r.headers, r.row, r.index);
+      log(`Loaded ${Math.max(0,(values||[]).length-1)} rows.`);
+    } catch(e){
+      log('Load failed: ' + e.message);
+      alert('Load failed: ' + e.message);
+    }
+  }
+
+  async function appendRow(){
+    const name = $('sheetName').value.trim();
+    const inputDateStr = $('inDate').value.trim();
+    const inputITD = Number($('inITD').value.trim());
+    const inputProd = Number($('inProd').value.trim());
+    const status = $('status');
+
+    if (!inputDateStr || !Number.isFinite(inputITD) || !Number.isFinite(inputProd)){
+      status.textContent = 'Fill all three fields with valid numbers'; status.className='text-sm bad'; return;
+    }
+
+    status.textContent = 'Calculating and writing…'; status.className='text-sm';
+    try{
+      const valuesABC = await sheetsGet(`${name}!A1:C10000`);
+      const plan = buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd);
+
+      // Write one contiguous block starting at next row
+      const start = plan.startRow + 1; // startRow is last.index+1; add 1 to get the first empty row number
+      const end = start + plan.rowsToWrite.length - 1;
+      const a1 = `${name}!A${start}:C${end}`;
+      await sheetsUpdate(a1, plan.rowsToWrite);
+
+      status.textContent = `Saved ${plan.rowsToWrite.length} row(s) from A${start}:C${end}`; status.className='text-sm ok';
+      $('inDate').value = todayISO(); $('inITD').value=''; $('inProd').value='';
+      await loadLast();
+    } catch(e){
+      status.textContent = 'Append failed: ' + e.message; status.className='text-sm bad';
+      log('Append failed: ' + e.message);
+    }
+  }
+
+  // GIS init with onload hook and a fallback poll
+  window.__gisLoaded = function(){
+    try{
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: SHEETS_SCOPE,
+        callback: (resp) => {
+          if (resp && resp.access_token){
+            accessToken = resp.access_token;
+            setSignedInUI(true);
+            loadLast();
+          }
+        }
+      });
+      log('GIS loaded');
+    } catch(e){
+      log('GIS init error: ' + e.message);
+    }
+  };
+
+  function requestSignIn(){
+    if (!tokenClient){
+      log('Google Identity not ready yet.'); alert('Google Identity not ready yet.'); return;
+    }
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  }
+
+  // Wire up UI
+  window.addEventListener('DOMContentLoaded', ()=>{
+    log('JS ready');
+    $('inDate').value = todayISO();
+    $('sheetLink').href = `https://docs.google.com/spreadsheets/d/${$('sheetId').value.trim()}/edit#gid=0`;
+
+    $('refreshBtn').addEventListener('click', ()=>{
+      if (!accessToken){ alert('Sign in first to read via Sheets API.'); return; }
+      loadLast();
+    });
+    $('appendBtn').addEventListener('click', appendRow);
+    $('signInBtn').addEventListener('click', requestSignIn);
+
+    setSignedInUI(false);
+
+    // Fallback poll in case script onload is blocked
+    const t = setInterval(()=>{
+      if (window.google && google.accounts && google.accounts.oauth2){
+        clearInterval(t);
+        window.__gisLoaded();
+      }
+    }, 300);
+  });
+  </script>
+</body>
+</html>

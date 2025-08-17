@@ -431,7 +431,7 @@
 
     // ---------- OAuth + Sheets (Private mode) ----------
     const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com"; // safe to embed; not a secret
-    const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
+    const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
     let accessToken = null;
     let tokenClient = null;
 
@@ -455,6 +455,35 @@
         const t = await res.text();
         throw new Error(`Sheets API error ${res.status}: ${t}`);
       }
+      return res.json();
+    }
+
+    // ---- Write helpers (read-write scope required) ----
+    async function appendRowRW(spreadsheetId, sheetName, rowArray) {
+      if (!accessToken) throw new Error("Not signed in");
+      const range = encodeURIComponent(`${sheetName}!A1`);
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ values: [rowArray] })
+      });
+      if (!res.ok) throw new Error(`Append failed ${res.status}: ${await res.text()}`);
+      return res.json();
+    }
+
+    async function updateRangeRW(spreadsheetId, a1Range, values2d) {
+      if (!accessToken) throw new Error("Not signed in");
+      const enc = encodeURIComponent(a1Range);
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${enc}?valueInputOption=USER_ENTERED`;
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ values: values2d })
+      });
+      if (!res.ok) throw new Error(`Update failed ${res.status}: ${await res.text()}`);
+      return res.json();
+    }
       return res.json();
     }
 
@@ -660,3 +689,4 @@
   </script>
 </body>
 </html>
+

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Household Energy & Solar KPI Dashboard</title>
+  <title>Household Energy & Solar Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -19,7 +19,6 @@
 </head>
 <body class="bg-gray-50 text-gray-900">
   <div class="max-w-7xl mx-auto p-6 space-y-6">
-    <!-- Header -->
     <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold">Household Electricity & Solar KPI Dashboard</h1>
@@ -28,16 +27,17 @@
       <div class="flex items-center gap-3 flex-wrap">
         <a href="entry.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">New Entry</a>
         <a href="data.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">All Rows</a>
-        <button id="signInBtn" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Sign in</button>
-        <button id="signOutBtn" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 hidden">Sign out</button>
+        <button id="signInBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Sign in</button>
+        <button id="signOutBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 hidden">Sign out</button>
         <span id="whoAmI" class="chip hidden"></span>
         <span id="modeChip" class="chip">Mode: Public (GViz)</span>
-        <button id="refreshBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
-        <a id="sheetLink" href="#" target="_blank" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
+        <button id="refreshBtn" type="button" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
+        <!-- Set an initial working href so it works even before JS initializes -->
+        <a id="sheetLink" href="https://docs.google.com/spreadsheets/d/193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac/edit#gid=0" target="_blank" rel="noopener" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
       </div>
     </header>
 
-    <!-- Data Source Config (hidden) -->
+    <!-- Data Source (hidden) -->
     <section class="card hidden" aria-hidden="true">
       <h2 class="text-lg font-semibold mb-3">Data Source</h2>
       <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -57,9 +57,9 @@
           <label class="block"><span class="text-sm text-gray-700">Grid export kWh</span><select id="mapExp" class="input"></select></label>
         </div>
         <div class="flex gap-3 md:col-span-2 lg:col-span-3">
-          <button id="detectBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Auto-detect columns</button>
-          <button id="saveMapBtn" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200">Save mapping</button>
-          <button id="clearMapBtn" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200">Clear mapping</button>
+          <button id="detectBtn" type="button" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Auto-detect columns</button>
+          <button id="saveMapBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200">Save mapping</button>
+          <button id="clearMapBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200">Clear mapping</button>
         </div>
       </div>
       <p id="mapWarn" class="hidden mt-3 p-3 rounded-lg warn">One or more required columns were not found. Please select Date and Home usage, then Refresh.</p>
@@ -73,11 +73,11 @@
         <label class="block"><span class="text-sm text-gray-700">End date</span><input id="endDate" type="date" class="input" value="2025-12-31" /></label>
         <label class="block"><span class="text-sm text-gray-700">Import rate $/kWh</span><input id="importRate" type="number" step="0.0001" class="input" value="0.35" /></label>
         <label class="block"><span class="text-sm text-gray-700">Export credit $/kWh</span><input id="exportRate" type="number" step="0.0001" class="input" value="0.05" /></label>
-        <div class="flex gap-3"><button id="applyBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 w-full">Apply</button><button id="clearBtn" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 w-full">Clear</button></div>
+        <div class="flex gap-3"><button id="applyBtn" type="button" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 w-full">Apply</button><button id="clearBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 w-full">Clear</button></div>
       </div>
     </section>
 
-    <!-- KPI Tiles -->
+    <!-- KPIs -->
     <section class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
       <div class="card"><div class="kpi" id="kpiUsage">0 kWh</div><div class="kpi-label">Total Usage</div></div>
       <div class="card"><div class="kpi" id="kpiSolar">0 kWh</div><div class="kpi-label">Total Solar</div></div>
@@ -124,12 +124,12 @@
       </div>
     </section>
 
-    <!-- Diagnostics & Tests -->
+    <!-- Diagnostics -->
     <section class="card">
       <h2 class="text-lg font-semibold mb-3">Diagnostics</h2>
       <div id="diag" class="text-sm space-y-2"></div>
       <div class="mt-3">
-        <button id="runTestsBtn" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Run built-in tests</button>
+        <button id="runTestsBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Run built-in tests</button>
         <span id="testSummary" class="ml-3 text-sm"></span>
       </div>
       <div id="testOutput" class="mt-3 text-sm mono"></div>
@@ -141,7 +141,12 @@
   </div>
 
   <script>
-    // ---------- Utilities ----------
+    // ======= Diagnostics helpers =======
+    const diag = (msg) => { const d = document.getElementById('diag'); const p = document.createElement('p'); p.textContent = msg; d.appendChild(p); };
+    window.addEventListener('error', (e) => diag('JS error: ' + e.message));
+    window.addEventListener('unhandledrejection', (e) => diag('Promise rejection: ' + (e.reason && (e.reason.message || e.reason))));
+
+    // ======= Formatting & mapping =======
     const fmtKWh = n => `${(Number.isFinite(n)?n:0).toLocaleString(undefined,{maximumFractionDigits:2})} kWh`;
     const fmtPct = n => `${((Number.isFinite(n)?n:0)*100).toFixed(1)}%`;
     const fmtUSD = n => (Number.isFinite(n)?n:0).toLocaleString(undefined,{style:'currency',currency:'USD'});
@@ -201,7 +206,7 @@
     function loadMapping(id,sheet){ const raw=localStorage.getItem(`energy-map:${id}:${sheet}`); return raw?JSON.parse(raw):null; }
 
     function setSelectValues(map){ if(!map) return; const pairs=[['mapDate','date'],['mapUse','use'],['mapSolar','solar'],['mapImp','imp'],['mapExp','exp']];
-      for(const [selId,key] of pairs){ const sel=document.getElementById(selId); if(!sel) continue; const v=map[key]; if(Number.isInteger(v)&&v>=0&&v<sel.options.length) sel.value=String(v);} }
+      for(const [selId,key] of pairs){ const sel=document.getElementById(selId); if(!sel) continue; const v=map[key]; if (v==null) continue; if(Number.isInteger(v)&&v>=0&&v<sel.options.length) sel.value=String(v);} }
 
     function getCurrentMapping(){ const v=id=>{const x=document.getElementById(id).value; return x===''?null:Number(x)}; return { date:v('mapDate'), use:v('mapUse'), solar:v('mapSolar'), imp:v('mapImp'), exp:v('mapExp') }; }
     function mappingIsValid(map){ return Number.isInteger(map.date) && Number.isInteger(map.use); }
@@ -277,9 +282,8 @@
     function renderAll(rows){ renderKPIs(calcKPIs(rows)); renderCharts(rows); renderTable(rows); }
 
     function showWarn(show,msg){ const el=document.getElementById('mapWarn'); if(show){ el.classList.remove('hidden'); if(msg) el.textContent=msg; } else { el.classList.add('hidden'); } }
-    function diag(msg){ const d=document.getElementById('diag'); const p=document.createElement('p'); p.textContent=msg; d.appendChild(p); }
 
-    // ---------- OAuth + Sheets (Private mode) ----------
+    // ======= OAuth & data fetch =======
     const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
     const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"; // read-write
     let accessToken = null; let tokenClient = null; let tokenExpiresAt = 0;
@@ -288,7 +292,7 @@
       return { table:{ cols: headers.map(h=>({label:String(h||'').trim()})), rows: body.map(r=>({ c: headers.map((_,i)=>({ v: r[i]!==undefined ? r[i] : '' })) })) } };
 
     async function fetchSheetValues(spreadsheetId, sheetName){
-      const now = Date.now(); if (accessToken && now > tokenExpiresAt - 10_000) { try { tokenClient.requestAccessToken({ prompt: '' }); } catch(_){} }
+      const now = Date.now(); if (accessToken && now > tokenExpiresAt - 10000) { try { tokenClient.requestAccessToken({ prompt: '' }); } catch(_){} }
       const range = encodeURIComponent(`${sheetName}!A1:Z10000`);
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?majorDimension=ROWS`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -310,7 +314,6 @@
       } catch(e){ alert(`Private load failed: ${e.message}`); console.error(e); }
     }
 
-    // ---------- Public GViz loader ----------
     async function loadData(){
       if (accessToken) { await loadDataPrivate(); return; }
       const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
@@ -320,12 +323,11 @@
         if (!mappingIsValid(getCurrentMapping())){ showWarn(true,'Select Date and Home usage, then Refresh.'); return; }
         showWarn(false); const rows=extractRowsByIndex(g, getCurrentMapping()); window.__rows=rows; applyFilters();
         diag(`Loaded ${rows.length} rows. Columns detected: ${cols.join(', ')}`);
-      } catch(e){ alert(`Failed to load data: ${e.message}`); console.error(e); }
+      } catch(e){ diag('Public load failed: ' + e.message); alert(`Failed to load data: ${e.message}`); console.error(e); }
     }
 
     function applyFilters(){ const s=document.getElementById('startDate').value ? new Date(document.getElementById('startDate').value) : null; const e=document.getElementById('endDate').value ? new Date(document.getElementById('endDate').value) : null; const rows=(window.__rows||[]).filter(r=>(!s||r.date>=s)&&(!e||r.date<=e)); renderAll(rows); }
 
-    // ---------- Tests ----------
     function makeGvizLike(headers,data){ return { table:{ cols: headers.map(h=>({label:h})), rows: data.map(row=>({ c: row.map(v=>({ v })) })) } }; }
     function runTests(){ const out=[]; function t(n,f){ try{ f(); out.push(`✅ ${n}`);}catch(e){ out.push(`❌ ${n} -> ${e.message}`);} }
       t('Exact headers map and extract',()=>{ const g=makeGvizLike(['Date','Home_kWh','Solar_KWh','Grid_Import_kWh','Grid_Export_kWh'],[['2025-01-01',10,6,4,2]]); const cols=g.table.cols.map(c=>c.label); const auto=tryAutoMap(cols); const rows=extractRowsByIndex(g,auto); if(rows[0].use!==10) throw new Error('wrong use'); });
@@ -334,37 +336,61 @@
       t('Manual mapping with None works',()=>{ const g=makeGvizLike(['Date','Load','Something'],[['2025-04-01',9,1]]); const rows=extractRowsByIndex(g,{date:0,use:1,solar:null,imp:null,exp:null}); if(rows.length!==1) throw new Error('row missing'); });
       document.getElementById('testOutput').textContent = out.join('\n'); const pass=out.filter(x=>x.startsWith('✅')).length; const total=out.length; document.getElementById('testSummary').textContent = `${pass}/${total} tests passed`; }
 
-    // ---------- Events & Auth wiring ----------
-    document.getElementById('applyBtn').addEventListener('click', applyFilters);
-    document.getElementById('clearBtn').addEventListener('click', ()=>{ document.getElementById('startDate').value=''; document.getElementById('endDate').value=''; renderAll(window.__rows||[]); });
-    document.getElementById('refreshBtn').addEventListener('click', loadData);
-    document.getElementById('detectBtn').addEventListener('click', async ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); const url=buildGvizUrl(id,name); const res=await fetch(url); const txt=await res.text(); const g=parseGviz(txt); const cols=g.table.cols.map(c=>c.label||c.id); populateMappingSelects(cols); const auto=tryAutoMap(cols); setSelectValues(auto); showWarn(!mappingIsValid(getCurrentMapping()), 'Check Date and Home usage selections.'); });
-    document.getElementById('saveMapBtn').addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); saveMapping(id,name,getCurrentMapping()); diag('Mapping saved for this sheet.'); });
-    document.getElementById('clearMapBtn').addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); localStorage.removeItem(`energy-map:${id}:${name}`); diag('Saved mapping cleared.'); });
-    document.getElementById('runTestsBtn').addEventListener('click', runTests);
+    // ======= Wire events as soon as DOM is ready =======
+    document.addEventListener('DOMContentLoaded', () => {
+      // Buttons
+      document.getElementById('applyBtn').addEventListener('click', () => { diag('Apply clicked'); applyFilters(); });
+      document.getElementById('clearBtn').addEventListener('click', () => { diag('Clear clicked'); document.getElementById('startDate').value=''; document.getElementById('endDate').value=''; renderAll(window.__rows||[]); });
+      document.getElementById('refreshBtn').addEventListener('click', () => { diag('Refresh clicked'); loadData(); });
+      document.getElementById('detectBtn').addEventListener('click', async ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); const url=buildGvizUrl(id,name); const res=await fetch(url); const txt=await res.text(); const g=parseGviz(txt); const cols=g.table.cols.map(c=>c.label||c.id); populateMappingSelects(cols); const auto=tryAutoMap(cols); setSelectValues(auto); showWarn(!mappingIsValid(getCurrentMapping()), 'Check Date and Home usage selections.'); });
+      document.getElementById('saveMapBtn').addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); saveMapping(id,name,getCurrentMapping()); diag('Mapping saved for this sheet.'); });
+      document.getElementById('clearMapBtn').addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); localStorage.removeItem(`energy-map:${id}:${name}`); diag('Saved mapping cleared.'); });
+      document.getElementById('runTestsBtn').addEventListener('click', runTests);
+
+      // OAuth init. If GSI not yet loaded, inject script and retry on load
+      function initGsi(){
+        if (!(window.google && google.accounts && google.accounts.oauth2)) return false;
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SHEETS_SCOPE,
+          callback: (resp) => {
+            if (resp && resp.access_token){
+              accessToken = resp.access_token;
+              tokenExpiresAt = Date.now() + 55*60*1000;
+              setAuthUI(true);
+              loadDataPrivate();
+            }
+          }
+        });
+        return true;
+      }
+
+      // Hook up sign-in/out regardless of GSI load timing
+      document.getElementById('signInBtn').addEventListener('click', () => {
+        diag('Sign in clicked');
+        if (!tokenClient){
+          if (!initGsi()) { alert('Google Identity not ready yet. Try again in a moment.'); return; }
+        }
+        tokenClient.requestAccessToken({ prompt:'consent' });
+      });
+      document.getElementById('signOutBtn').addEventListener('click', ()=>{ diag('Sign out clicked'); accessToken=null; tokenExpiresAt=0; setAuthUI(false); loadData(); });
+
+      // Ensure Open Sheet reflects current ID immediately
+      const idInput = document.getElementById('sheetId');
+      const sheetLink = document.getElementById('sheetLink');
+      const applySheetLink = () => { const id = (idInput.value||'').trim(); if(id) sheetLink.href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`; };
+      idInput.addEventListener('input', applySheetLink);
+      applySheetLink();
+
+      // First data load
+      loadData();
+    });
 
     function setAuthUI(signedIn){
       const who=document.getElementById('whoAmI'); const inBtn=document.getElementById('signInBtn'); const outBtn=document.getElementById('signOutBtn'); const mode=document.getElementById('modeChip');
       if (signedIn){ who.textContent='Signed in'; who.classList.remove('hidden'); outBtn.classList.remove('hidden'); inBtn.classList.add('hidden'); mode.textContent='Mode: Private (Sheets API)'; }
       else { who.classList.add('hidden'); outBtn.classList.add('hidden'); inBtn.classList.remove('hidden'); mode.textContent='Mode: Public (GViz)'; }
     }
-
-    window.addEventListener('load', ()=>{
-      if (window.google && google.accounts && google.accounts.oauth2){
-        tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: SHEETS_SCOPE,
-          callback: (resp) => {
-            if (resp && resp.access_token){ accessToken = resp.access_token; tokenExpiresAt = Date.now() + 55*60*1000; setAuthUI(true); loadDataPrivate(); }
-          }
-        });
-      }
-      document.getElementById('signInBtn').addEventListener('click', ()=>{ if (!tokenClient){ alert('Google Identity not ready yet.'); return; } tokenClient.requestAccessToken({ prompt:'consent' }); });
-      document.getElementById('signOutBtn').addEventListener('click', ()=>{ accessToken=null; tokenExpiresAt=0; setAuthUI(false); loadData(); });
-    });
-
-    // Boot
-    loadData();
   </script>
 </body>
 </html>

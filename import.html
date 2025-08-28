@@ -1,262 +1,185 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-  <head>
-    <base target="_top">
-    <meta charset="utf-8" />
-    <title>SDG&E CSV Import</title>
-    <style>
-      :root {
-        --ink: #0f172a;
-        --muted: #475569;
-        --bg: #f8fafc;
-        --accent: #2563eb;
-        --ok: #16a34a;
-        --warn: #b45309;
-        --err: #b91c1c;
-        --card: #ffffff;
-      }
-      html, body {
-        margin: 0;
-        padding: 0;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-        color: var(--ink);
-        background: var(--bg);
-      }
-      .wrap {
-        max-width: 720px;
-        margin: 0 auto;
-        padding: 20px 16px 28px;
-      }
-      h1 {
-        font-size: 18px;
-        margin: 0 0 12px;
-      }
-      p {
-        margin: 8px 0;
-        color: var(--muted);
-        font-size: 13px;
-      }
-      .card {
-        background: var(--card);
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 1px 2px rgba(2,6,23,0.04);
-      }
-      .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-      .row > * { flex: 0 0 auto; }
-      input[type="file"] {
-        padding: 8px;
-        border: 1px dashed #cbd5e1;
-        border-radius: 10px;
-        background: #fff;
-      }
-      .hint { font-size: 12px; color: var(--muted); }
-      .preview {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-        font-size: 12px;
-        background: #0b1020;
-        color: #e5e7eb;
-        border-radius: 10px;
-        padding: 10px 12px;
-        overflow: auto;
-        max-height: 220px;
-        white-space: pre;
-      }
-      .btn {
-        cursor: pointer;
-        border: 0;
-        border-radius: 10px;
-        padding: 10px 14px;
-        font-weight: 600;
-        background: var(--accent);
-        color: white;
-      }
-      .btn:disabled {
-        opacity: 0.6;
-        cursor: default;
-      }
-      .btn.secondary {
-        background: #64748b;
-      }
-      .status {
-        margin-top: 10px;
-        font-size: 13px;
-      }
-      .status.ok { color: var(--ok); }
-      .status.warn { color: var(--warn); }
-      .status.err { color: var(--err); }
-      .opts {
-        margin-top: 10px;
-        display: flex;
-        align-items: center;
-        gap: 14px;
-      }
-      label { font-size: 13px; color: var(--ink); }
-      .meta {
-        font-size: 12px;
-        color: var(--muted);
-        margin-top: 6px;
-      }
-      hr {
-        border: 0;
-        border-top: 1px solid #e2e8f0;
-        margin: 14px 0;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <h1>Import SDG&E CSV to SDGEImport</h1>
-      <div class="card">
-        <p>Select the SDG&E CSV you downloaded. The file will be read in your browser and sent to the script for import.</p>
+<head>
+  <meta charset="utf-8">
+  <title>Import Utility → Import</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:#0f172a;background:#f8fafc;margin:0}
+    .wrap{max-width:760px;margin:0 auto;padding:20px 16px 28px}
+    h1{font-size:18px;margin:0 0 12px}
+    p{margin:8px 0;color:#475569;font-size:13px}
+    .card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(2,6,23,0.04)}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    input[type=file]{padding:8px;border:1px dashed #cbd5e1;border-radius:10px;background:#fff}
+    .btn{cursor:pointer;border:0;border-radius:10px;padding:10px 14px;font-weight:600;background:#2563eb;color:#fff}
+    .btn:disabled{opacity:.6;cursor:default}
+    .btn.secondary{background:#64748b}
+    .status{margin-top:10px;font-size:13px}
+    .ok{color:#16a34a}.warn{color:#b45309}.err{color:#b91c1c}
+    .hint{font-size:12px;color:#475569}
+    .preview{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:#0b1020;color:#e5e7eb;border-radius:10px;padding:10px 12px;overflow:auto;max-height:240px;white-space:pre}
+    .meta{font-size:12px;color:#475569;margin-top:6px}
+    hr{border:0;border-top:1px solid #e2e8f0;margin:14px 0}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Import SDG&E CSV to SDGEImport</h1>
+    <div class="card">
+      <p>Select your SDG&E CSV. The file is read locally, then posted to your Apps Script web app which writes into the SDGEImport sheet.</p>
 
-        <div class="row" style="margin-top:8px;">
-          <input id="file" type="file" accept=".csv,text/csv" />
-          <button id="btnPreview" class="btn secondary" disabled>Preview</button>
-          <button id="btnImport" class="btn" disabled>Import to SDGEImport</button>
-        </div>
+      <div class="row" style="margin-top:8px;">
+        <input id="file" type="file" accept=".csv,text/csv">
+        <button id="btnPreview" class="btn secondary" disabled>Preview</button>
+        <button id="btnImport" class="btn" disabled>Import to SDGEImport</button>
+      </div>
 
-        <div class="opts">
-          <label>
-            <input id="replace" type="checkbox" checked />
-            Replace existing sheet contents
-          </label>
-        </div>
+      <div class="row" style="margin-top:8px;">
+        <label><input id="replace" type="checkbox" checked> Replace existing sheet contents</label>
+      </div>
 
-        <div class="meta" id="meta">No file selected.</div>
-
-        <div id="status" class="status"></div>
-
-        <hr>
-
-        <div id="previewWrap" style="display:none;">
-          <div class="hint">Preview shows the header and first 15 data rows.</div>
-          <div class="preview" id="previewBox"></div>
-        </div>
+      <div class="meta" id="meta">No file selected.</div>
+      <div id="status" class="status"></div>
+      <hr>
+      <div id="previewWrap" style="display:none;">
+        <div class="hint">Preview shows the header and first 15 rows.</div>
+        <div class="preview" id="previewBox"></div>
       </div>
     </div>
+  </div>
 
-    <script>
-      const els = {
-        file: document.getElementById('file'),
-        btnPreview: document.getElementById('btnPreview'),
-        btnImport: document.getElementById('btnImport'),
-        meta: document.getElementById('meta'),
-        status: document.getElementById('status'),
-        previewWrap: document.getElementById('previewWrap'),
-        previewBox: document.getElementById('previewBox'),
-        replace: document.getElementById('replace'),
-      };
+<script>
+  const ENDPOINT_URL = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
+  const SHARED_SECRET = '';
 
-      let csvText = '';
-      let rowCount = 0;
+  const els = {
+    file: document.getElementById('file'),
+    btnPreview: document.getElementById('btnPreview'),
+    btnImport: document.getElementById('btnImport'),
+    meta: document.getElementById('meta'),
+    status: document.getElementById('status'),
+    previewWrap: document.getElementById('previewWrap'),
+    previewBox: document.getElementById('previewBox'),
+    replace: document.getElementById('replace'),
+  };
 
-      function setStatus(msg, cls) {
-        els.status.textContent = msg || '';
-        els.status.className = 'status' + (cls ? ' ' + cls : '');
+  let csvText = '';
+  let rowCount = 0;
+
+  function setStatus(msg, cls) {
+    els.status.textContent = msg || '';
+    els.status.className = 'status ' + (cls || '');
+  }
+
+  async function readFileAsTextRobust(file) {
+    try {
+      const buf = await file.arrayBuffer();
+      try { return new TextDecoder('utf-8').decode(buf); } catch (_) {}
+      try { return new TextDecoder('utf-16le').decode(buf); } catch (_) {}
+      try { return new TextDecoder('utf-16be').decode(buf); } catch (_) {}
+      return new TextDecoder('windows-1252').decode(buf);
+    } catch (e) {
+      console.error(e);
+      throw new Error('Unable to read file. Please save/export as UTF-8 CSV and try again.');
+    }
+  }
+
+  async function handleFileChange() {
+    setStatus('', '');
+    els.previewWrap.style.display = 'none';
+    els.previewBox.textContent = '';
+    csvText = '';
+    rowCount = 0;
+
+    const f = els.file.files && els.file.files[0];
+    if (!f) {
+      els.meta.textContent = 'No file selected.';
+      els.btnPreview.disabled = true;
+      els.btnImport.disabled = true;
+      return;
+    }
+
+    els.meta.textContent = `Selected: ${f.name} • ${new Intl.NumberFormat().format(f.size)} bytes`;
+    els.btnPreview.disabled = false;
+    els.btnImport.disabled = false;
+  }
+
+  async function previewFile() {
+    const f = els.file.files && els.file.files[0];
+    if (!f) return;
+    try {
+      setStatus('Reading file for preview...', 'warn');
+      const text = await readFileAsTextRobust(f);
+      const norm = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      csvText = norm;
+      const lines = norm.split('\n');
+      rowCount = Math.max(0, lines.length - 1);
+      let preview = '';
+      for (let i = 0; i < lines.length && i < 16; i++) preview += lines[i] + '\n';
+      els.previewBox.textContent = preview.trimEnd();
+      els.previewWrap.style.display = 'block';
+      setStatus(`Preview ready. Rows detected: ~${new Intl.NumberFormat().format(rowCount)}.`, 'ok');
+    } catch (err) {
+      console.error(err);
+      setStatus('Failed to read file for preview. ' + (err.message || ''), 'err');
+    }
+  }
+
+  async function doImport() {
+    const f = els.file.files && els.file.files[0];
+    if (!f) { setStatus('Choose a CSV file first.', 'warn'); return; }
+    try {
+      setStatus('Reading file...', 'warn');
+      if (!csvText) {
+        const text = await readFileAsTextRobust(f);
+        csvText = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
       }
+      const replace = !!els.replace.checked;
+      const body = new URLSearchParams();
+      body.set('action', 'importCsvText');
+      body.set('targetSheet', 'SDGEImport');
+      body.set('replace', String(replace));
+      body.set('csvText', csvText);
+      if (SHARED_SECRET) body.set('token', SHARED_SECRET);
 
-      function enableControls(enabled) {
-        els.btnPreview.disabled = !enabled;
-        els.btnImport.disabled = !enabled;
-        els.file.disabled = !enabled;
-        els.replace.disabled = !enabled;
+      setStatus('Uploading and importing into SDGEImport...', 'warn');
+
+      const res = await fetch(ENDPOINT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body
+      });
+
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); } catch (_) { json = { ok: res.ok, raw: text }; }
+
+      if (!res.ok || json.ok === false) {
+        const msg = (json && json.error) ? json.error : `HTTP ${res.status}`;
+        setStatus('Import failed: ' + msg, 'err');
+      } else {
+        const imported = json.rows || 0;
+        setStatus(`Import complete. ${new Intl.NumberFormat().format(imported)} rows written to SDGEImport.`, 'ok');
       }
+    } catch (err) {
+      console.error(err);
+      setStatus('Import failed while reading or uploading: ' + (err.message || ''), 'err');
+    } finally {
+      enableControls(true);
+    }
+  }
 
-      function readFileAsText(file) {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onerror = () => reject(reader.error);
-          reader.onload = () => resolve(reader.result || '');
-          reader.readAsText(file);
-        });
-      }
+  function enableControls(enabled) {
+    els.btnPreview.disabled = !enabled;
+    els.btnImport.disabled = !enabled;
+    els.file.disabled = !enabled;
+    els.replace.disabled = !enabled;
+  }
 
-      async function handleFileChange() {
-        setStatus('', '');
-        els.previewWrap.style.display = 'none';
-        els.previewBox.textContent = '';
-        csvText = '';
-        rowCount = 0;
-
-        const f = els.file.files && els.file.files[0];
-        if (!f) {
-          els.meta.textContent = 'No file selected.';
-          els.btnPreview.disabled = true;
-          els.btnImport.disabled = true;
-          return;
-        }
-
-        els.meta.textContent = `Selected: ${f.name} • ${new Intl.NumberFormat().format(f.size)} bytes`;
-        els.btnPreview.disabled = false;
-        els.btnImport.disabled = false;
-      }
-
-      async function previewFile() {
-        const f = els.file.files && els.file.files[0];
-        if (!f) return;
-
-        try {
-          setStatus('Reading file for preview...', 'warn');
-          const text = await readFileAsText(f);
-          csvText = text;
-          const lines = text.split(/\r\n|\n/);
-          rowCount = Math.max(0, lines.length - 1);
-
-          let preview = '';
-          for (let i = 0; i < lines.length && i < 16; i++) {
-            preview += lines[i] + '\n';
-          }
-          els.previewBox.textContent = preview.trimEnd();
-          els.previewWrap.style.display = 'block';
-          setStatus(`Preview ready. Rows detected: ~${new Intl.NumberFormat().format(rowCount)}.`, 'ok');
-        } catch (err) {
-          console.error(err);
-          setStatus('Failed to read file for preview. See console for details.', 'err');
-        }
-      }
-
-      async function doImport() {
-        const f = els.file.files && els.file.files[0];
-        if (!f) {
-          setStatus('Choose a CSV file first.', 'warn');
-          return;
-        }
-        try {
-          setStatus('Reading file...', 'warn');
-          enableControls(false);
-
-          if (!csvText) {
-            csvText = await readFileAsText(f);
-          }
-          const replace = !!els.replace.checked;
-
-          setStatus('Uploading and importing into SDGEImport...', 'warn');
-
-          google.script.run
-            .withSuccessHandler(function(res) {
-              const imported = res && typeof res.rows === 'number' ? res.rows : 0;
-              setStatus(`Import complete. ${new Intl.NumberFormat().format(imported)} rows written to SDGEImport.`, 'ok');
-              enableControls(true);
-            })
-            .withFailureHandler(function(err) {
-              console.error(err);
-              const msg = (err && err.message) ? err.message : String(err);
-              setStatus('Import failed: ' + msg, 'err');
-              enableControls(true);
-            })
-            .importSdgeCsvText(csvText, { replace: replace });
-        } catch (err) {
-          console.error(err);
-          setStatus('Import failed while reading file. See console for details.', 'err');
-          enableControls(true);
-        }
-      }
-
-      els.file.addEventListener('change', handleFileChange);
-      els.btnPreview.addEventListener('click', previewFile);
-      els.btnImport.addEventListener('click', doImport);
-    </script>
-  </body>
+  els.file.addEventListener('change', handleFileChange);
+  els.btnPreview.addEventListener('click', previewFile);
+  els.btnImport.addEventListener('click', doImport);
+</script>
+</body>
 </html>

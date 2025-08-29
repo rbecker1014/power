@@ -95,13 +95,10 @@
     <!-- Charts -->
     <section class="grid lg:grid-cols-2 gap-4">
       <div class="card">
-        <h3 class="font-semibold mb-3">Daily Usage and Solar</h3>
+        <h3 class="font-semibold mb-3">Monthly Usage and Solar</h3>
         <canvas id="chartDaily"></canvas>
       </div>
-      <div class="card">
-        <h3 class="font-semibold mb-3">Energy Flow</h3>
-        <canvas id="chartFlow"></canvas>
-      </div>
+      
     </section>
 
     <!-- Data table -->
@@ -253,18 +250,41 @@
       document.getElementById('kpiSavings').textContent = fmtUSD(k.savings);
     }
 
-    let dailyChart, flowChart;
+    let monthlyChart;
     function renderCharts(rows){
-      const labels = rows.map(r=>r.date.toISOString().split('T')[0]);
-      const use = rows.map(r=>r.use); const solar = rows.map(r=>r.solar); const imp = rows.map(r=>r.imp); const exp = rows.map(r=>r.exp);
+      // Aggregate to monthly totals (YYYY-MM)
+      const monthMap = new Map();
+      for (const r of rows){
+        const key = r.date.getFullYear() + '-' + String(r.date.getMonth()+1).padStart(2,'0');
+        const agg = monthMap.get(key) || { use:0, solar:0, imp:0, exp:0 };
+        agg.use += (r.use||0);
+        agg.solar += (r.solar||0);
+        agg.imp += (r.imp||0);
+        agg.exp += (r.exp||0);
+        monthMap.set(key, agg);
+      }
+      const labels = Array.from(monthMap.keys()).sort();
+      const use = labels.map(k => monthMap.get(k).use);
+      const solar = labels.map(k => monthMap.get(k).solar);
+      const imp = labels.map(k => monthMap.get(k).imp);
+      const exp = labels.map(k => monthMap.get(k).exp);
 
-      const dailyCtx = document.getElementById('chartDaily'); if (dailyChart) dailyChart.destroy();
-      dailyChart = new Chart(dailyCtx, { type:'line', data:{ labels, datasets:[ {label:'Home kWh', data:use}, {label:'Solar kWh', data:solar}, {label:'Import kWh', data:imp}, {label:'Export kWh', data:exp} ] }, options:{ responsive:true, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ position:'bottom' } }, scales:{ x:{ ticks:{ maxRotation:0, autoSkip:true } } } } });
-
-      const flowCtx = document.getElementById('chartFlow'); if (flowChart) flowChart.destroy();
-      const totUse = use.reduce((a,b)=>a+b,0), totSolar = solar.reduce((a,b)=>a+b,0), totImp = imp.reduce((a,b)=>a+b,0), totExp = exp.reduce((a,b)=>a+b,0);
-      const solarToLoad = Math.min(totSolar, Math.max(0, totUse - totImp)); const gridToLoad = Math.max(0, totUse - solarToLoad);
-      flowChart = new Chart(flowCtx, { type:'pie', data:{ labels:['Solar to Load','Grid to Load','Exported'], datasets:[{ data:[solarToLoad, gridToLoad, totExp] }] }, options:{ plugins:{ legend:{ position:'bottom' } } } });
+      const ctx = document.getElementById('chartDaily');
+      if (monthlyChart) monthlyChart.destroy();
+      monthlyChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets: [
+          { label: 'Usage kWh', data: use },
+          { label: 'Solar kWh', data: solar },
+          { label: 'Import kWh', data: imp },
+          { label: 'Export kWh', data: exp }
+        ]},
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } },
+          scales: { x: { stacked: false }, y: { beginAtZero: true } }
+        }
+      });
     }
 
     function renderTable(rows){

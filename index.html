@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Household Energy   Solar Dashboard</title>
+  <title>Household Electricity & Solar KPI Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -32,8 +32,8 @@
         <span id="whoAmI" class="chip hidden"></span>
         <span id="modeChip" class="chip">Mode: Public (GViz)</span>
         <button id="refreshBtn" type="button" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
-        <!-- Set an initial working href so it works even before JS initializes -->
-        <a id="sheetLink" href="https://docs.google.com/spreadsheets/d/193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac/edit?gid=506103122#gid=506103122" target="_blank" rel="noopener" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
+        <!-- Neutral spreadsheet link, no gid -->
+        <a id="sheetLink" href="https://docs.google.com/spreadsheets/d/193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac/edit" target="_blank" rel="noopener" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
       </div>
     </header>
 
@@ -49,7 +49,7 @@
             <input id="sheetId" class="input" value="193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac" />
           </label>
           <label class="block"><span class="text-sm text-gray-700">Sheet name (tab)</span>
-            <input id="sheetName" class="input" value="Data" />
+            <input id="sheetName" class="input" value="FullReport" />
           </label>
           <div class="md:col-span-2 lg:col-span-3 grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <label class="block"><span class="text-sm text-gray-700">Date column</span><select id="mapDate" class="input"></select></label>
@@ -101,7 +101,6 @@
         <h3 class="font-semibold mb-3">Monthly Usage and Solar</h3>
         <canvas id="chartDaily"></canvas>
       </div>
-      
     </section>
 
     <!-- Data table -->
@@ -177,6 +176,50 @@
       return JSON.parse(m[1]);
     }
 
+    // Robust date parser for GViz, Sheets, and serials
+    function parseDateCell(dCell){
+      if (!dCell) return null;
+      const v = dCell.v;
+      const f = dCell.f;
+      // GViz Date(yyyy,mm,dd,...)
+      if (typeof v === 'string' && /^Date\(/.test(v)){
+        const m = v.match(/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);
+        if (m){
+          const [_, Y, M, D, h='0', mnt='0', s='0'] = m;
+          const dt = new Date(Number(Y), Number(M), Number(D), Number(h), Number(mnt), Number(s));
+          if (!isNaN(dt)) return dt;
+        }
+      }
+      // Sheets API formatted value
+      if (typeof f === 'string'){
+        const dt = new Date(f);
+        if (!isNaN(dt)) return dt;
+      }
+      // Object form {year, month, day}
+      if (v && typeof v === 'object' && v.year != null){
+        const dt = new Date(v.year, v.month || 0, v.day || 1);
+        if (!isNaN(dt)) return dt;
+      }
+      // Excel serial number heuristic
+      if (typeof v === 'number'){
+        if (v > 20000 && v < 60000){
+          const epoch = new Date(Date.UTC(1899,11,30));
+          const ms = v * 86400000;
+          const dt = new Date(epoch.getTime() + ms);
+          if (!isNaN(dt)) return dt;
+        } else {
+          const dt = new Date(v);
+          if (!isNaN(dt)) return dt;
+        }
+      }
+      // Plain string fallback
+      if (typeof v === 'string'){
+        const dt = new Date(v);
+        if (!isNaN(dt)) return dt;
+      }
+      return null;
+    }
+
     function populateMappingSelects(cols){
       const selects = [['mapDate','date'],['mapUse','use'],['mapSolar','solar'],['mapImp','imp'],['mapExp','exp']];
       selects.forEach(([id]) => {
@@ -205,7 +248,7 @@
     function saveMapping(id,sheet,map){ localStorage.setItem(`energy-map:${id}:${sheet}`, JSON.stringify(map)); }
     function loadMapping(id,sheet){ const raw=localStorage.getItem(`energy-map:${id}:${sheet}`); return raw?JSON.parse(raw):null; }
 
-    function setSelectValues(map){ if(!map) return; const pairs=[['mapDate','date'],['mapUse','use'],['mapSolar','solar'],['mapImp','imp'],['mapExp','exp']];
+    function setSelectValues(map){ if(!map) return; const pairs=[["mapDate","date"],["mapUse","use"],["mapSolar","solar"],["mapImp","imp"],["mapExp","exp"]];
       for(const [selId,key] of pairs){ const sel=document.getElementById(selId); if(!sel) continue; const v=map[key]; if (v==null) continue; if(Number.isInteger(v)&&v>=0&&v<sel.options.length) sel.value=String(v);} }
 
     function getCurrentMapping(){ const v=id=>{const x=document.getElementById(id).value; return x===''?null:Number(x)}; return { date:v('mapDate'), use:v('mapUse'), solar:v('mapSolar'), imp:v('mapImp'), exp:v('mapExp') }; }
@@ -213,12 +256,8 @@
 
     function extractRowsByIndex(gviz, idx){
       const rows = (gviz.table.rows||[]).filter(r=>r.c).map(r=>{
-        const dCell = r.c[idx.date]; if (!dCell) return null; let date;
-        if (dCell.v && typeof dCell.v === 'string') date = new Date(dCell.v);
-        else if (dCell.f) date = new Date(dCell.f);
-        else if (dCell.v && typeof dCell.v === 'object' && dCell.v.year!=null) date = new Date(dCell.v.year, dCell.v.month||0, dCell.v.day||1);
-        else date = new Date(dCell.v);
-        if (isNaN(date)) return null;
+        const date = parseDateCell(r.c[idx.date]);
+        if (!date) return null;
         const getNum = i => (i==null || !r.c[i] || r.c[i].v==null || r.c[i].v==='') ? 0 : Number(r.c[i].v);
         const use=getNum(idx.use); const solar=idx.solar!=null?getNum(idx.solar):0; const imp=idx.imp!=null?getNum(idx.imp):0; const exp=idx.exp!=null?getNum(idx.exp):0;
         const solarToLoad = Math.max(0, Math.min(solar, Math.max(0, use - imp)));
@@ -255,7 +294,6 @@
 
     let monthlyChart;
     function renderCharts(rows){
-      // Aggregate to monthly totals (YYYY-MM) for Usage and Solar only
       const monthMap = new Map();
       for (const r of rows){
         const key = r.date.getFullYear() + '-' + String(r.date.getMonth()+1).padStart(2,'0');
@@ -306,7 +344,6 @@
     let accessToken = null; let tokenClient = null; let tokenExpiresAt = 0;
 
     function valuesToGviz(values){
-      // Row 1 is header; Row 2 onward are data rows by default
       if (!values || !values.length) {
         return { table: { cols: [], rows: [] } };
       }
@@ -331,7 +368,7 @@
 
     async function loadDataPrivate(){
       const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
-      document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`;
+      document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit`;
       try {
         const j = await fetchSheetValues(id, name); const g = valuesToGviz(j.values||[]);
         const cols = (g.table&&g.table.cols?g.table.cols:[]).map(c=>(c.label||'').trim());
@@ -340,7 +377,6 @@
         const auto = tryAutoMap(cols);
         const map = stored || auto || { date: 0 };
         setSelectValues(map);
-        // Default: Date column is Column A (index 0) when no saved/auto mapping
         if (!stored && (!auto || auto.date == null)){
           const sel = document.getElementById('mapDate');
           if (sel && sel.options.length){ sel.value = '0'; }
@@ -355,25 +391,32 @@
     async function loadData(){
       if (accessToken) { await loadDataPrivate(); return; }
       const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
-      const url = buildGvizUrl(id, name); document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`;
+      const url = buildGvizUrl(id, name);
+      document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit`;
       try { const res=await fetch(url); const txt=await res.text(); const g=parseGviz(txt);
         const cols=g.table.cols.map(c=>c.label||c.id); populateMappingSelects(cols);
         const stored = loadMapping(id,name);
         const auto = tryAutoMap(cols);
         const map = stored || auto || { date: 0 };
         setSelectValues(map);
-        // Default: Date column is Column A (index 0) when no saved/auto mapping
         if (!stored && (!auto || auto.date == null)){
           const sel = document.getElementById('mapDate');
           if (sel && sel.options.length){ sel.value = '0'; }
         }
         if (!mappingIsValid(getCurrentMapping())){ showWarn(true,'Select Date and Home usage, then Refresh.'); return; }
-        showWarn(false); const rows=extractRowsByIndex(g, getCurrentMapping()); window.__rows=rows; applyFilters();
+        showWarn(false);
+        const rows=extractRowsByIndex(g, getCurrentMapping());
+        window.__rows=rows; applyFilters();
         diag(`Loaded ${rows.length} rows. Columns detected: ${cols.join(', ')}`);
       } catch(e){ diag('Public load failed: ' + e.message); alert(`Failed to load data: ${e.message}`); console.error(e); }
     }
 
-    function applyFilters(){ const s=document.getElementById('startDate').value ? new Date(document.getElementById('startDate').value) : null; const e=document.getElementById('endDate').value ? new Date(document.getElementById('endDate').value) : null; const rows=(window.__rows||[]).filter(r=>(!s||r.date>=s)&&(!e||r.date<=e)); renderAll(rows); }
+    function applyFilters(){
+      const s=document.getElementById('startDate').value ? new Date(document.getElementById('startDate').value) : null;
+      const e=document.getElementById('endDate').value ? new Date(document.getElementById('endDate').value) : null;
+      const rows=(window.__rows||[]).filter(r=>(!s||r.date>=s)&&(!e||r.date<=e));
+      renderAll(rows);
+    }
 
     function makeGvizLike(headers,data){ return { table:{ cols: headers.map(h=>({label:h})), rows: data.map(row=>({ c: row.map(v=>({ v })) })) } }; }
     function runTests(){ const out=[]; function t(n,f){ try{ f(); out.push(`✅ ${n}`);}catch(e){ out.push(`❌ ${n} -> ${e.message}`);} }
@@ -389,6 +432,7 @@
       document.getElementById('applyBtn').addEventListener('click', () => { diag('Apply clicked'); applyFilters(); });
       document.getElementById('clearBtn').addEventListener('click', () => { diag('Clear clicked'); document.getElementById('startDate').value=''; document.getElementById('endDate').value=''; renderAll(window.__rows||[]); });
       document.getElementById('refreshBtn').addEventListener('click', () => { diag('Refresh clicked'); loadData(); });
+
       const detectBtnEl = document.getElementById('detectBtn');
       if (detectBtnEl) detectBtnEl.addEventListener('click', async ()=>{
         const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
@@ -396,19 +440,22 @@
         const cols=g.table.cols.map(c=>c.label||c.id); populateMappingSelects(cols); const auto=tryAutoMap(cols); setSelectValues(auto);
         showWarn(!mappingIsValid(getCurrentMapping()), 'Check Date and Home usage selections.');
       });
+
       const saveMapBtnEl = document.getElementById('saveMapBtn');
       if (saveMapBtnEl) saveMapBtnEl.addEventListener('click', ()=>{
         const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
         saveMapping(id,name,getCurrentMapping()); diag('Mapping saved for this sheet.');
       });
+
       const clearMapBtnEl = document.getElementById('clearMapBtn');
       if (clearMapBtnEl) clearMapBtnEl.addEventListener('click', ()=>{
         const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
         localStorage.removeItem(`energy-map:${id}:${name}`); diag('Saved mapping cleared.');
       });
+
       document.getElementById('runTestsBtn').addEventListener('click', runTests);
 
-      // OAuth init. If GSI not yet loaded, inject script and retry on load
+      // OAuth init
       function initGsi(){
         if (!(window.google && google.accounts && google.accounts.oauth2)) return false;
         tokenClient = google.accounts.oauth2.initTokenClient({
@@ -426,7 +473,6 @@
         return true;
       }
 
-      // Hook up sign-in/out regardless of GSI load timing
       document.getElementById('signInBtn').addEventListener('click', () => {
         diag('Sign in clicked');
         if (!tokenClient){
@@ -434,12 +480,13 @@
         }
         tokenClient.requestAccessToken({ prompt:'consent' });
       });
+
       document.getElementById('signOutBtn').addEventListener('click', ()=>{ diag('Sign out clicked'); accessToken=null; tokenExpiresAt=0; setAuthUI(false); loadData(); });
 
-      // Ensure Open Sheet reflects current ID immediately
+      // Keep link neutral when ID changes
       const idInput = document.getElementById('sheetId');
       const sheetLink = document.getElementById('sheetLink');
-      const applySheetLink = () => { const id = (idInput.value||'').trim(); if(id) sheetLink.href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`; };
+      const applySheetLink = () => { const id = (idInput.value||'').trim(); if(id) sheetLink.href = `https://docs.google.com/spreadsheets/d/${id}/edit`; };
       idInput.addEventListener('input', applySheetLink);
       applySheetLink();
 
@@ -458,7 +505,7 @@
           dsBtn.setAttribute('aria-expanded','false');
         }
       }
-      const savedDs = localStorage.getItem('ds:expanded') === '1'; // default collapsed
+      const savedDs = localStorage.getItem('ds:expanded') === '1';
       applyDsState(savedDs);
       if (dsBtn){ dsBtn.addEventListener('click', ()=>{ const next = dsBtn.getAttribute('aria-expanded') !== 'true'; applyDsState(next); localStorage.setItem('ds:expanded', next ? '1' : '0'); }); }
 

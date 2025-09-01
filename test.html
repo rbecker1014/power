@@ -2,147 +2,189 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Household Energy v Solar Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <title>Electricity & Solar – Mobile</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
-    .card { background:#fff; border-radius:1rem; box-shadow:0 8px 16px rgba(0,0,0,.06); padding:1.25rem; }
-    .kpi { font-size:1.875rem; font-weight:600; }
-    .kpi-label { font-size:.75rem; letter-spacing:.06em; text-transform:uppercase; color:#6b7280; }
-    .input { border:1px solid #e5e7eb; border-radius:.5rem; padding:.5rem .75rem; width:100%; }
+    :root { --safe-bottom: env(safe-area-inset-bottom, 0px); }
+    .card { background:#fff; border-radius:1rem; box-shadow:0 8px 16px rgba(0,0,0,.06); padding:1rem; }
+    .kpi { font-size:1.5rem; font-weight:700; }
+    .kpi-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; }
+    .input { border:1px solid #e5e7eb; border-radius:.75rem; padding:.6rem .85rem; width:100%; }
     .chip { display:inline-block; border-radius:9999px; padding:.15rem .55rem; background:#f3f4f6; font-size:.75rem }
     .warn { background:#FEF3C7; color:#92400E; border:1px solid #FDE68A; }
     .mono { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; }
+    body { padding-bottom: calc(64px + var(--safe-bottom)); }
+    .tab-active { color:#111827; font-weight:600; }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
-  <div class="max-w-7xl mx-auto p-6 space-y-6">
-    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-      <div>
-        <h1 class="text-2xl md:text-3xl font-bold">Household Electricity & Solar KPI Dashboard</h1>
-        <p class="text-gray-600 mt-1">Reads your Google Sheet and shows KPIs, charts, and a data table. No server required.</p>
-      </div>
-      <div class="flex items-center gap-3 flex-wrap">
-        <a href="entry.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">New Entry</a>
-        <a href="data.html" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">All Rows</a>
-        <button id="signInBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Sign in</button>
-        <button id="signOutBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 hidden">Sign out</button>
-        <span id="whoAmI" class="chip hidden"></span>
-        <span id="modeChip" class="chip">Mode: Public (GViz)</span>
-        <button id="refreshBtn" type="button" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
-        <!-- Set an initial working href so it works even before JS initializes -->
-        <a id="sheetLink" href="https://docs.google.com/spreadsheets/d/193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac/edit#gid=0" target="_blank" rel="noopener" class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300">Open Sheet</a>
-      </div>
-    </header>
+  <!-- App header -->
+  <header class="px-4 pt-4 pb-2 flex items-center justify-between gap-3">
+    <div>
+      <h1 class="text-xl font-bold">Household Electricity & Solar</h1>
+      <p class="text-xs text-gray-600">Mobile PWA. Reads your Google Sheet.</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="signInBtn" type="button" class="px-3 py-2 rounded-xl bg-gray-900 text-white text-sm">Sign in</button>
+      <button id="signOutBtn" type="button" class="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm hidden">Sign out</button>
+    </div>
+  </header>
 
-    <!-- Data Source (hidden) -->
-    <section class="card hidden" aria-hidden="true">
-      <h2 class="text-lg font-semibold mb-3">Data Source</h2>
-      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <label class="block"><span class="text-sm text-gray-700">Google Sheet ID</span>
-          <input id="sheetId" class="input" value="193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac" />
-          <p class="text-xs text-gray-500 mt-1">The long ID in your Sheet URL</p>
-        </label>
-        <label class="block"><span class="text-sm text-gray-700">Sheet name (tab)</span>
-          <input id="sheetName" class="input" value="Data" />
-          <p class="text-xs text-gray-500 mt-1">Exact tab name that holds the data</p>
-        </label>
-        <div class="md:col-span-2 lg:col-span-3 grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <label class="block"><span class="text-sm text-gray-700">Date column</span><select id="mapDate" class="input"></select></label>
-          <label class="block"><span class="text-sm text-gray-700">Home usage kWh</span><select id="mapUse" class="input"></select></label>
-          <label class="block"><span class="text-sm text-gray-700">Solar production kWh</span><select id="mapSolar" class="input"></select></label>
-          <label class="block"><span class="text-sm text-gray-700">Grid import kWh</span><select id="mapImp" class="input"></select></label>
-          <label class="block"><span class="text-sm text-gray-700">Grid export kWh</span><select id="mapExp" class="input"></select></label>
-        </div>
-        <div class="flex gap-3 md:col-span-2 lg:col-span-3">
-          <button id="detectBtn" type="button" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Auto-detect columns</button>
-          <button id="saveMapBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200">Save mapping</button>
-          <button id="clearMapBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200">Clear mapping</button>
-        </div>
-      </div>
-      <p id="mapWarn" class="hidden mt-3 p-3 rounded-lg warn">One or more required columns were not found. Please select Date and Home usage, then Refresh.</p>
-    </section>
+  <!-- Install banner (PWA) -->
+  <div id="installBanner" class="hidden mx-4 mb-2 p-3 rounded-xl bg-white border border-gray-200 flex items-center justify-between">
+    <span class="text-sm">Add this app to your home screen</span>
+    <div class="flex gap-2">
+      <button id="installBtn" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm">Install</button>
+      <button id="dismissInstall" class="px-3 py-1.5 rounded-lg bg-gray-100 text-sm">Not now</button>
+    </div>
+  </div>
 
-    <!-- Filters -->
-    <section class="card">
-      <h2 class="text-lg font-semibold mb-3">Filters</h2>
-      <div class="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
-        <label class="block"><span class="text-sm text-gray-700">Start date</span><input id="startDate" type="date" class="input" value="2025-06-01" /></label>
-        <label class="block"><span class="text-sm text-gray-700">End date</span><input id="endDate" type="date" class="input" value="2025-12-31" /></label>
-        <label class="block"><span class="text-sm text-gray-700">Import rate $/kWh</span><input id="importRate" type="number" step="0.0001" class="input" value="0.35" /></label>
-        <label class="block"><span class="text-sm text-gray-700">Export credit $/kWh</span><input id="exportRate" type="number" step="0.0001" class="input" value="0.05" /></label>
-        <div class="flex gap-3"><button id="applyBtn" type="button" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 w-full">Apply</button><button id="clearBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 w-full">Clear</button></div>
-      </div>
-    </section>
-
+  <!-- Sections (tabs) -->
+  <main class="px-4 pb-24 space-y-4">
     <!-- KPIs -->
-    <section class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <div class="card"><div class="kpi" id="kpiUsage">0 kWh</div><div class="kpi-label">Total Usage</div></div>
-      <div class="card"><div class="kpi" id="kpiSolar">0 kWh</div><div class="kpi-label">Total Solar</div></div>
-      <div class="card"><div class="kpi" id="kpiImport">0 kWh</div><div class="kpi-label">Grid Import</div></div>
-      <div class="card"><div class="kpi" id="kpiExport">0 kWh</div><div class="kpi-label">Grid Export</div></div>
-    </section>
-
-    <section class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <div class="card"><div class="kpi" id="kpiSelfConsumption">0%</div><div class="kpi-label">Self Consumption ratio</div></div>
-      <div class="card"><div class="kpi" id="kpiSelfSufficiency">0%</div><div class="kpi-label">Self Sufficiency ratio</div></div>
-      <div class="card"><div class="kpi" id="kpiAvgDailyUse">0 kWh</div><div class="kpi-label">Avg Daily Usage</div></div>
-      <div class="card"><div class="kpi" id="kpiSavings">$0</div><div class="kpi-label">Est. Savings vs grid</div></div>
+    <section id="sec-kpi" class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="card"><div class="kpi" id="kpiUsage">0 kWh</div><div class="kpi-label">Total Usage</div></div>
+        <div class="card"><div class="kpi" id="kpiSolar">0 kWh</div><div class="kpi-label">Total Solar</div></div>
+        <div class="card"><div class="kpi" id="kpiImport">0 kWh</div><div class="kpi-label">Grid Import</div></div>
+        <div class="card"><div class="kpi" id="kpiExport">0 kWh</div><div class="kpi-label">Grid Export</div></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="card"><div class="kpi" id="kpiSelfConsumption">0%</div><div class="kpi-label">Self Consumption</div></div>
+        <div class="card"><div class="kpi" id="kpiSelfSufficiency">0%</div><div class="kpi-label">Self Sufficiency</div></div>
+        <div class="card"><div class="kpi" id="kpiAvgDailyUse">0 kWh</div><div class="kpi-label">Avg Daily Usage</div></div>
+        <div class="card"><div class="kpi" id="kpiSavings">$0</div><div class="kpi-label">Est. Savings</div></div>
+      </div>
     </section>
 
     <!-- Charts -->
-    <section class="grid lg:grid-cols-2 gap-4">
+    <section id="sec-charts" class="hidden space-y-3">
       <div class="card">
-        <h3 class="font-semibold mb-3">Daily Usage and Solar</h3>
-        <canvas id="chartDaily"></canvas>
-      </div>
-      <div class="card">
-        <h3 class="font-semibold mb-3">Energy Flow</h3>
-        <canvas id="chartFlow"></canvas>
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold">Monthly Usage and Solar</h2>
+          <button id="refreshBtn" type="button" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm">Refresh</button>
+        </div>
+        <canvas id="chartMonthly" class="mt-3"></canvas>
       </div>
     </section>
 
     <!-- Data table -->
-    <section class="card">
-      <h2 class="text-lg font-semibold mb-3">Data</h2>
-      <div class="overflow-x-auto">
-        <table class="min-w-full text-sm" id="dataTable">
-          <thead class="bg-gray-100 text-gray-700">
-            <tr>
-              <th class="text-left p-2">Date</th>
-              <th class="text-right p-2">Home kWh</th>
-              <th class="text-right p-2">Solar kWh</th>
-              <th class="text-right p-2">Grid Import kWh</th>
-              <th class="text-right p-2">Grid Export kWh</th>
-              <th class="text-right p-2">Solar to Load kWh</th>
-            </tr>
-          </thead>
-          <tbody id="tableBody"></tbody>
-        </table>
+    <section id="sec-data" class="hidden space-y-3">
+      <div class="card">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold">Data</h2>
+          <a id="sheetLink" href="#" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-gray-200 text-sm">Open Sheet</a>
+        </div>
+        <div class="overflow-x-auto mt-2">
+          <table class="min-w-full text-sm" id="dataTable">
+            <thead class="bg-gray-100 text-gray-700">
+              <tr>
+                <th class="text-left p-2">Date</th>
+                <th class="text-right p-2">Home kWh</th>
+                <th class="text-right p-2">Solar kWh</th>
+                <th class="text-right p-2">Grid Import</th>
+                <th class="text-right p-2">Grid Export</th>
+                <th class="text-right p-2">Solar → Load</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
-    <!-- Diagnostics -->
-    <section class="card">
-      <h2 class="text-lg font-semibold mb-3">Diagnostics</h2>
-      <div id="diag" class="text-sm space-y-2"></div>
-      <div class="mt-3">
-        <button id="runTestsBtn" type="button" class="px-4 py-2 rounded-xl bg-gray-900 text-white">Run built-in tests</button>
-        <span id="testSummary" class="ml-3 text-sm"></span>
+    <!-- Settings (Data Source + Filters + Diagnostics) -->
+    <section id="sec-settings" class="hidden space-y-3">
+      <div class="card" id="dataSourceCard">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold">Data Source</h2>
+          <button id="toggleDataSource" type="button" class="px-3 py-1.5 rounded-lg bg-gray-100 text-sm" aria-expanded="false" aria-controls="dataSourceBody">Show</button>
+        </div>
+        <div id="dataSourceBody" class="mt-3 hidden">
+          <div class="grid grid-cols-1 gap-3">
+            <label class="block"><span class="text-sm text-gray-700">Google Sheet ID</span>
+              <input id="sheetId" class="input" value="193i7rsk2zTJwrF9ahcGn5DDWuZqb2zsNL5oZ6y2XVac" />
+            </label>
+            <label class="block"><span class="text-sm text-gray-700">Sheet name (tab)</span>
+              <input id="sheetName" class="input" value="FullReport" />
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="block"><span class="text-sm text-gray-700">Date column</span><select id="mapDate" class="input"></select></label>
+              <label class="block"><span class="text-sm text-gray-700">Home usage kWh</span><select id="mapUse" class="input"></select></label>
+              <label class="block"><span class="text-sm text-gray-700">Solar production kWh</span><select id="mapSolar" class="input"></select></label>
+              <label class="block"><span class="text-sm text-gray-700">Grid import kWh</span><select id="mapImp" class="input"></select></label>
+              <label class="block"><span class="text-sm text-gray-700">Grid export kWh</span><select id="mapExp" class="input"></select></label>
+            </div>
+            <div class="flex gap-2">
+              <button id="detectBtn" type="button" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm">Auto-detect</button>
+              <button id="saveMapBtn" type="button" class="px-3 py-1.5 rounded-lg bg-gray-100 text-sm">Save mapping</button>
+              <button id="clearMapBtn" type="button" class="px-3 py-1.5 rounded-lg bg-gray-100 text-sm">Clear mapping</button>
+            </div>
+            <p id="mapWarn" class="hidden mt-1 p-3 rounded-lg warn text-sm">One or more required columns were not found. Select Date and Home usage, then refresh.</p>
+          </div>
+        </div>
       </div>
-      <div id="testOutput" class="mt-3 text-sm mono"></div>
-    </section>
 
-    <footer class="text-xs text-gray-500 pb-8">
-      <p>Tip: If your sheet is not public, publish it or set link access to viewer. This page can also read privately when signed in via Google Identity Services.</p>
-    </footer>
-  </div>
+      <div class="card">
+        <h2 class="font-semibold mb-2">Filters</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+          <label class="block"><span class="text-sm text-gray-700">Start date</span><input id="startDate" type="date" class="input" value="2025-06-01" /></label>
+          <label class="block"><span class="text-sm text-gray-700">End date</span><input id="endDate" type="date" class="input" value="2025-12-31" /></label>
+          <label class="block"><span class="text-sm text-gray-700">Import rate $/kWh</span><input id="importRate" type="number" step="0.0001" class="input" value="0.35" /></label>
+          <label class="block"><span class="text-sm text-gray-700">Export credit $/kWh</span><input id="exportRate" type="number" step="0.0001" class="input" value="0.05" /></label>
+          <div class="flex gap-2">
+            <button id="applyBtn" type="button" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm w-full">Apply</button>
+            <button id="clearBtn" type="button" class="px-3 py-1.5 rounded-lg bg-gray-100 text-sm w-full">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="flex items-center justify-between"><h2 class="font-semibold">Diagnostics</h2><button id="runTestsBtn" type="button" class="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-sm">Run tests</button></div>
+        <div id="diag" class="text-sm space-y-2 mt-2"></div>
+        <div class="mt-2 text-sm"><span id="testSummary" class="text-sm"></span></div>
+        <div id="testOutput" class="mt-2 text-sm mono"></div>
+      </div>
+
+      <footer class="text-xs text-gray-500 pb-2">
+        <p>Tip: If your sheet is not public, publish it or sign in with Google to read privately.</p>
+      </footer>
+    </section>
+  </main>
+
+  <!-- Bottom tab bar -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200" style="padding-bottom: var(--safe-bottom);">
+    <div class="grid grid-cols-4">
+      <button class="py-3 text-center text-sm tab-active" data-tab="kpi">KPIs</button>
+      <button class="py-3 text-center text-sm" data-tab="charts">Charts</button>
+      <button class="py-3 text-center text-sm" data-tab="data">Data</button>
+      <button class="py-3 text-center text-sm" data-tab="settings">Settings</button>
+    </div>
+  </nav>
 
   <script>
+    // ======= Tab navigation =======
+    const tabs = document.querySelectorAll('nav [data-tab]');
+    const sections = {
+      kpi: document.getElementById('sec-kpi'),
+      charts: document.getElementById('sec-charts'),
+      data: document.getElementById('sec-data'),
+      settings: document.getElementById('sec-settings'),
+    };
+    function showTab(key){
+      Object.entries(sections).forEach(([k,el])=> el.classList.toggle('hidden', k!==key));
+      tabs.forEach(b=> b.classList.toggle('tab-active', b.dataset.tab===key));
+    }
+    tabs.forEach(b=> b.addEventListener('click', ()=> showTab(b.dataset.tab)));
+
     // ======= Diagnostics helpers =======
-    const diag = (msg) => { const d = document.getElementById('diag'); const p = document.createElement('p'); p.textContent = msg; d.appendChild(p); };
+    const diag = (msg) => { const d = document.getElementById('diag'); if(!d) return; const p = document.createElement('p'); p.textContent = msg; d.appendChild(p); };
     window.addEventListener('error', (e) => diag('JS error: ' + e.message));
     window.addEventListener('unhandledrejection', (e) => diag('Promise rejection: ' + (e.reason && (e.reason.message || e.reason))));
 
@@ -177,6 +219,31 @@
       return JSON.parse(m[1]);
     }
 
+    // Robust date parser for GViz, Sheets, and serials
+    function parseDateCell(dCell){
+      if (!dCell) return null;
+      const v = dCell.v; const f = dCell.f;
+      if (typeof v === 'string' && /^Date\(/.test(v)){
+        const m = v.match(/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);
+        if (m){
+          const [_, Y, M, D, h='0', mnt='0', s='0'] = m;
+          const dt = new Date(Number(Y), Number(M), Number(D), Number(h), Number(mnt), Number(s));
+          if (!isNaN(dt)) return dt;
+        }
+      }
+      if (typeof f === 'string'){ const dt = new Date(f); if (!isNaN(dt)) return dt; }
+      if (v && typeof v === 'object' && v.year != null){ const dt = new Date(v.year, v.month || 0, v.day || 1); if (!isNaN(dt)) return dt; }
+      if (typeof v === 'number'){
+        if (v > 20000 && v < 60000){
+          const epoch = new Date(Date.UTC(1899,11,30));
+          const ms = v * 86400000; const dt = new Date(epoch.getTime() + ms);
+          if (!isNaN(dt)) return dt;
+        } else { const dt = new Date(v); if (!isNaN(dt)) return dt; }
+      }
+      if (typeof v === 'string'){ const dt = new Date(v); if (!isNaN(dt)) return dt; }
+      return null;
+    }
+
     function populateMappingSelects(cols){
       const selects = [['mapDate','date'],['mapUse','use'],['mapSolar','solar'],['mapImp','imp'],['mapExp','exp']];
       selects.forEach(([id]) => {
@@ -204,21 +271,14 @@
 
     function saveMapping(id,sheet,map){ localStorage.setItem(`energy-map:${id}:${sheet}`, JSON.stringify(map)); }
     function loadMapping(id,sheet){ const raw=localStorage.getItem(`energy-map:${id}:${sheet}`); return raw?JSON.parse(raw):null; }
-
-    function setSelectValues(map){ if(!map) return; const pairs=[['mapDate','date'],['mapUse','use'],['mapSolar','solar'],['mapImp','imp'],['mapExp','exp']];
+    function setSelectValues(map){ if(!map) return; const pairs=[["mapDate","date"],["mapUse","use"],["mapSolar","solar"],["mapImp","imp"],["mapExp","exp"]];
       for(const [selId,key] of pairs){ const sel=document.getElementById(selId); if(!sel) continue; const v=map[key]; if (v==null) continue; if(Number.isInteger(v)&&v>=0&&v<sel.options.length) sel.value=String(v);} }
-
     function getCurrentMapping(){ const v=id=>{const x=document.getElementById(id).value; return x===''?null:Number(x)}; return { date:v('mapDate'), use:v('mapUse'), solar:v('mapSolar'), imp:v('mapImp'), exp:v('mapExp') }; }
     function mappingIsValid(map){ return Number.isInteger(map.date) && Number.isInteger(map.use); }
 
     function extractRowsByIndex(gviz, idx){
       const rows = (gviz.table.rows||[]).filter(r=>r.c).map(r=>{
-        const dCell = r.c[idx.date]; if (!dCell) return null; let date;
-        if (dCell.v && typeof dCell.v === 'string') date = new Date(dCell.v);
-        else if (dCell.f) date = new Date(dCell.f);
-        else if (dCell.v && typeof dCell.v === 'object' && dCell.v.year!=null) date = new Date(dCell.v.year, dCell.v.month||0, dCell.v.day||1);
-        else date = new Date(dCell.v);
-        if (isNaN(date)) return null;
+        const date = parseDateCell(r.c[idx.date]); if (!date) return null;
         const getNum = i => (i==null || !r.c[i] || r.c[i].v==null || r.c[i].v==='') ? 0 : Number(r.c[i].v);
         const use=getNum(idx.use); const solar=idx.solar!=null?getNum(idx.solar):0; const imp=idx.imp!=null?getNum(idx.imp):0; const exp=idx.exp!=null?getNum(idx.exp):0;
         const solarToLoad = Math.max(0, Math.min(solar, Math.max(0, use - imp)));
@@ -253,43 +313,57 @@
       document.getElementById('kpiSavings').textContent = fmtUSD(k.savings);
     }
 
-    let dailyChart, flowChart;
+    let monthlyChart;
     function renderCharts(rows){
-      const labels = rows.map(r=>r.date.toISOString().split('T')[0]);
-      const use = rows.map(r=>r.use); const solar = rows.map(r=>r.solar); const imp = rows.map(r=>r.imp); const exp = rows.map(r=>r.exp);
-
-      const dailyCtx = document.getElementById('chartDaily'); if (dailyChart) dailyChart.destroy();
-      dailyChart = new Chart(dailyCtx, { type:'line', data:{ labels, datasets:[ {label:'Home kWh', data:use}, {label:'Solar kWh', data:solar}, {label:'Import kWh', data:imp}, {label:'Export kWh', data:exp} ] }, options:{ responsive:true, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ position:'bottom' } }, scales:{ x:{ ticks:{ maxRotation:0, autoSkip:true } } } } });
-
-      const flowCtx = document.getElementById('chartFlow'); if (flowChart) flowChart.destroy();
-      const totUse = use.reduce((a,b)=>a+b,0), totSolar = solar.reduce((a,b)=>a+b,0), totImp = imp.reduce((a,b)=>a+b,0), totExp = exp.reduce((a,b)=>a+b,0);
-      const solarToLoad = Math.min(totSolar, Math.max(0, totUse - totImp)); const gridToLoad = Math.max(0, totUse - solarToLoad);
-      flowChart = new Chart(flowCtx, { type:'pie', data:{ labels:['Solar to Load','Grid to Load','Exported'], datasets:[{ data:[solarToLoad, gridToLoad, totExp] }] }, options:{ plugins:{ legend:{ position:'bottom' } } } });
+      const monthMap = new Map();
+      for (const r of rows){
+        const key = r.date.getFullYear() + '-' + String(r.date.getMonth()+1).padStart(2,'0');
+        const agg = monthMap.get(key) || { use:0, solar:0 };
+        agg.use += (r.use||0); agg.solar += (r.solar||0);
+        monthMap.set(key, agg);
+      }
+      const labels = Array.from(monthMap.keys()).sort();
+      const use = labels.map(k => monthMap.get(k).use);
+      const solar = labels.map(k => monthMap.get(k).solar);
+      const ctx = document.getElementById('chartMonthly');
+      if (!ctx) return;
+      if (monthlyChart) monthlyChart.destroy();
+      monthlyChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets: [
+          { label: 'Usage kWh', data: use },
+          { label: 'Solar kWh', data: solar }
+        ]},
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+      });
     }
 
     function renderTable(rows){
       const tbody = document.getElementById('tableBody'); tbody.innerHTML=''; const frag=document.createDocumentFragment();
       rows.forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML = `
-        <td class="p-2 whitespace-nowrap">${r.date.toISOString().split('T')[0]}</td>
-        <td class="p-2 text-right">${r.use.toFixed(2)}</td>
-        <td class="p-2 text-right">${r.solar.toFixed(2)}</td>
-        <td class="p-2 text-right">${r.imp.toFixed(2)}</td>
-        <td class="p-2 text-right">${r.exp.toFixed(2)}</td>
-        <td class="p-2 text-right">${r.solarToLoad.toFixed(2)}</td>`; frag.appendChild(tr); });
+        <td class=\"p-2 whitespace-nowrap\">${r.date.toISOString().split('T')[0]}</td>
+        <td class=\"p-2 text-right\">${r.use.toFixed(2)}</td>
+        <td class=\"p-2 text-right\">${r.solar.toFixed(2)}</td>
+        <td class=\"p-2 text-right\">${r.imp.toFixed(2)}</td>
+        <td class=\"p-2 text-right\">${r.exp.toFixed(2)}</td>
+        <td class=\"p-2 text-right\">${r.solarToLoad.toFixed(2)}</td>`; frag.appendChild(tr); });
       tbody.appendChild(frag);
     }
 
     function renderAll(rows){ renderKPIs(calcKPIs(rows)); renderCharts(rows); renderTable(rows); }
 
-    function showWarn(show,msg){ const el=document.getElementById('mapWarn'); if(show){ el.classList.remove('hidden'); if(msg) el.textContent=msg; } else { el.classList.add('hidden'); } }
+    function showWarn(show,msg){ const el=document.getElementById('mapWarn'); if(!el) return; if(show){ el.classList.remove('hidden'); if(msg) el.textContent=msg; } else { el.classList.add('hidden'); } }
 
     // ======= OAuth & data fetch =======
     const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
     const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"; // read-write
     let accessToken = null; let tokenClient = null; let tokenExpiresAt = 0;
 
-    function valuesToGviz(values){ if(!values||!values.length) return { table:{ cols:[], rows:[] } }; const headers=values[0], body=values.slice(1);
-      return { table:{ cols: headers.map(h=>({label:String(h||'').trim()})), rows: body.map(r=>({ c: headers.map((_,i)=>({ v: r[i]!==undefined ? r[i] : '' })) })) } };
+    function valuesToGviz(values){
+      if (!values || !values.length) { return { table: { cols: [], rows: [] } }; }
+      const headers = values[0]; const body = values.slice(1);
+      return { table: { cols: headers.map(h => ({ label: String(h || '').trim() })), rows: body.map(r => ({ c: headers.map((_, i) => ({ v: r[i] !== undefined ? r[i] : '' })) })) } };
+    }
 
     async function fetchSheetValues(spreadsheetId, sheetName){
       const now = Date.now(); if (accessToken && now > tokenExpiresAt - 10000) { try { tokenClient.requestAccessToken({ prompt: '' }); } catch(_){} }
@@ -300,33 +374,67 @@
       return res.json();
     }
 
+    function cacheRows(id, name, rows){
+      try { const key = `rows-cache:${id}:${name}`; const flat = rows.map(r=>({d:r.date.toISOString(),u:r.use,s:r.solar,i:r.imp,e:r.exp,l:r.solarToLoad})); localStorage.setItem(key, JSON.stringify(flat)); }
+      catch(_){}
+    }
+    function loadCachedRows(id, name){
+      try { const key = `rows-cache:${id}:${name}`; const raw = localStorage.getItem(key); if(!raw) return null; const flat = JSON.parse(raw); return flat.map(x=>({date:new Date(x.d), use:+x.u, solar:+x.s, imp:+x.i, exp:+x.e, solarToLoad:+x.l})); }
+      catch(_) { return null; }
+    }
+
     async function loadDataPrivate(){
       const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
-      document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`;
+      document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit`;
       try {
         const j = await fetchSheetValues(id, name); const g = valuesToGviz(j.values||[]);
         const cols = (g.table&&g.table.cols?g.table.cols:[]).map(c=>(c.label||'').trim());
-        populateMappingSelects(cols); const map = loadMapping(id,name) || tryAutoMap(cols); setSelectValues(map);
-        if (!mappingIsValid(getCurrentMapping())){ showWarn(true,'Select Date and Home usage, then Refresh.'); return; }
+        populateMappingSelects(cols);
+        const stored = loadMapping(id,name); const auto = tryAutoMap(cols); const map = stored || auto || { date: 0 };
+        setSelectValues(map);
+        if (!stored && (!auto || auto.date == null)){ const sel = document.getElementById('mapDate'); if (sel && sel.options.length){ sel.value = '0'; } }
+        if (!mappingIsValid(getCurrentMapping())){ showWarn(true,'Select Date and Home usage, then refresh.'); return; }
         showWarn(false);
-        const rows = extractRowsByIndex(g, getCurrentMapping()); window.__rows = rows;
+        const rows = extractRowsByIndex(g, getCurrentMapping()); window.__rows = rows; cacheRows(id,name,rows);
         applyFilters(); diag(`Loaded ${rows.length} rows via Sheets API (private).`);
-      } catch(e){ alert(`Private load failed: ${e.message}`); console.error(e); }
+      } catch(e){
+        diag('Private load failed: ' + e.message);
+        const cached = loadCachedRows(id,name);
+        if (cached){ window.__rows=cached; applyFilters(); diag(`Loaded ${cached.length} rows from cache.`); }
+        else { alert(`Private load failed: ${e.message}`); }
+      }
     }
 
     async function loadData(){
       if (accessToken) { await loadDataPrivate(); return; }
       const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
-      const url = buildGvizUrl(id, name); document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`;
-      try { const res=await fetch(url); const txt=await res.text(); const g=parseGviz(txt);
-        const cols=g.table.cols.map(c=>c.label||c.id); populateMappingSelects(cols); const map=loadMapping(id,name)||tryAutoMap(cols); setSelectValues(map);
-        if (!mappingIsValid(getCurrentMapping())){ showWarn(true,'Select Date and Home usage, then Refresh.'); return; }
-        showWarn(false); const rows=extractRowsByIndex(g, getCurrentMapping()); window.__rows=rows; applyFilters();
+      const url = buildGvizUrl(id, name);
+      document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${id}/edit`;
+      try {
+        const res=await fetch(url); const txt=await res.text(); const g=parseGviz(txt);
+        const cols=g.table.cols.map(c=>c.label||c.id); populateMappingSelects(cols);
+        const stored = loadMapping(id,name); const auto = tryAutoMap(cols); const map = stored || auto || { date: 0 };
+        setSelectValues(map);
+        if (!stored && (!auto || auto.date == null)){ const sel = document.getElementById('mapDate'); if (sel && sel.options.length){ sel.value = '0'; } }
+        if (!mappingIsValid(getCurrentMapping())){ showWarn(true,'Select Date and Home usage, then refresh.'); return; }
+        showWarn(false);
+        const rows=extractRowsByIndex(g, getCurrentMapping());
+        window.__rows=rows; cacheRows(id,name,rows); applyFilters();
         diag(`Loaded ${rows.length} rows. Columns detected: ${cols.join(', ')}`);
-      } catch(e){ diag('Public load failed: ' + e.message); alert(`Failed to load data: ${e.message}`); console.error(e); }
+      } catch(e){
+        diag('Public load failed: ' + e.message);
+        const cached = loadCachedRows(id,name);
+        if (cached){ window.__rows=cached; applyFilters(); diag(`Loaded ${cached.length} rows from cache.`); }
+        else { alert(`Failed to load data: ${e.message}`); }
+      }
     }
 
-    function applyFilters(){ const s=document.getElementById('startDate').value ? new Date(document.getElementById('startDate').value) : null; const e=document.getElementById('endDate').value ? new Date(document.getElementById('endDate').value) : null; const rows=(window.__rows||[]).filter(r=>(!s||r.date>=s)&&(!e||r.date<=e)); renderAll(rows); }
+    function applyFilters(){
+      const s=document.getElementById('startDate').value ? new Date(document.getElementById('startDate').value) : null;
+      const e=document.getElementById('endDate').value ? new Date(document.getElementById('endDate').value) : null;
+      const rows=(window.__rows||[]).filter(r=>(!s||r.date>=s)&&(!e||r.date<=e));
+      renderAll(rows);
+    }
 
     function makeGvizLike(headers,data){ return { table:{ cols: headers.map(h=>({label:h})), rows: data.map(row=>({ c: row.map(v=>({ v })) })) } }; }
     function runTests(){ const out=[]; function t(n,f){ try{ f(); out.push(`✅ ${n}`);}catch(e){ out.push(`❌ ${n} -> ${e.message}`);} }
@@ -336,61 +444,94 @@
       t('Manual mapping with None works',()=>{ const g=makeGvizLike(['Date','Load','Something'],[['2025-04-01',9,1]]); const rows=extractRowsByIndex(g,{date:0,use:1,solar:null,imp:null,exp:null}); if(rows.length!==1) throw new Error('row missing'); });
       document.getElementById('testOutput').textContent = out.join('\n'); const pass=out.filter(x=>x.startsWith('✅')).length; const total=out.length; document.getElementById('testSummary').textContent = `${pass}/${total} tests passed`; }
 
-    // ======= Wire events as soon as DOM is ready =======
+    // ======= Data Source collapsible =======
+    const dsBody = document.getElementById('dataSourceBody');
+    const dsBtn  = document.getElementById('toggleDataSource');
+    function applyDsState(expanded){
+      if (!dsBody || !dsBtn) return;
+      if (expanded){ dsBody.classList.remove('hidden'); dsBtn.textContent = 'Hide'; dsBtn.setAttribute('aria-expanded','true'); }
+      else { dsBody.classList.add('hidden'); dsBtn.textContent = 'Show'; dsBtn.setAttribute('aria-expanded','false'); }
+    }
+
+    // ======= Install prompt =======
+    let deferredPrompt = null;
+    const banner = document.getElementById('installBanner');
+    const installBtn = document.getElementById('installBtn');
+    const dismissInstall = document.getElementById('dismissInstall');
+    window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt = e; banner.classList.remove('hidden'); });
+    if (dismissInstall) dismissInstall.addEventListener('click', ()=> banner.classList.add('hidden'));
+    if (installBtn) installBtn.addEventListener('click', async ()=>{ if (!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; banner.classList.add('hidden'); deferredPrompt = null; });
+
+    // ======= OAuth init =======
+    function initGsi(){
+      if (!(window.google && google.accounts && google.accounts.oauth2)) return false;
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: SHEETS_SCOPE,
+        callback: (resp) => {
+          if (resp && resp.access_token){
+            accessToken = resp.access_token; tokenExpiresAt = Date.now() + 55*60*1000;
+            setAuthUI(true); loadDataPrivate();
+          }
+        }
+      });
+      return true;
+    }
+
+    function setAuthUI(signedIn){
+      const inBtn=document.getElementById('signInBtn'); const outBtn=document.getElementById('signOutBtn');
+      if (signedIn){ outBtn.classList.remove('hidden'); inBtn.classList.add('hidden'); }
+      else { outBtn.classList.add('hidden'); inBtn.classList.remove('hidden'); }
+    }
+
+    // ======= Wire up events =======
     document.addEventListener('DOMContentLoaded', () => {
+      // First tab
+      showTab('kpi');
+
       // Buttons
-      document.getElementById('applyBtn').addEventListener('click', () => { diag('Apply clicked'); applyFilters(); });
+      document.getElementById('applyBtn').addEventListener('click', () => { diag('Apply clicked'); applyFilters(); showTab('kpi'); });
       document.getElementById('clearBtn').addEventListener('click', () => { diag('Clear clicked'); document.getElementById('startDate').value=''; document.getElementById('endDate').value=''; renderAll(window.__rows||[]); });
       document.getElementById('refreshBtn').addEventListener('click', () => { diag('Refresh clicked'); loadData(); });
-      document.getElementById('detectBtn').addEventListener('click', async ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); const url=buildGvizUrl(id,name); const res=await fetch(url); const txt=await res.text(); const g=parseGviz(txt); const cols=g.table.cols.map(c=>c.label||c.id); populateMappingSelects(cols); const auto=tryAutoMap(cols); setSelectValues(auto); showWarn(!mappingIsValid(getCurrentMapping()), 'Check Date and Home usage selections.'); });
-      document.getElementById('saveMapBtn').addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); saveMapping(id,name,getCurrentMapping()); diag('Mapping saved for this sheet.'); });
-      document.getElementById('clearMapBtn').addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); localStorage.removeItem(`energy-map:${id}:${name}`); diag('Saved mapping cleared.'); });
+
+      const detectBtnEl = document.getElementById('detectBtn');
+      if (detectBtnEl) detectBtnEl.addEventListener('click', async ()=>{
+        const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
+        const url=buildGvizUrl(id,name); const res=await fetch(url); const txt=await res.text(); const g=parseGviz(txt);
+        const cols=g.table.cols.map(c=>c.label||c.id); populateMappingSelects(cols); const auto=tryAutoMap(cols); setSelectValues(auto);
+        showWarn(!mappingIsValid(getCurrentMapping()), 'Check Date and Home usage selections.');
+      });
+
+      const saveMapBtnEl = document.getElementById('saveMapBtn');
+      if (saveMapBtnEl) saveMapBtnEl.addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); saveMapping(id,name,getCurrentMapping()); diag('Mapping saved for this sheet.'); });
+      const clearMapBtnEl = document.getElementById('clearMapBtn');
+      if (clearMapBtnEl) clearMapBtnEl.addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); localStorage.removeItem(`energy-map:${id}:${name}`); diag('Saved mapping cleared.'); });
+
       document.getElementById('runTestsBtn').addEventListener('click', runTests);
 
-      // OAuth init. If GSI not yet loaded, inject script and retry on load
-      function initGsi(){
-        if (!(window.google && google.accounts && google.accounts.oauth2)) return false;
-        tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: SHEETS_SCOPE,
-          callback: (resp) => {
-            if (resp && resp.access_token){
-              accessToken = resp.access_token;
-              tokenExpiresAt = Date.now() + 55*60*1000;
-              setAuthUI(true);
-              loadDataPrivate();
-            }
-          }
-        });
-        return true;
-      }
-
-      // Hook up sign-in/out regardless of GSI load timing
       document.getElementById('signInBtn').addEventListener('click', () => {
-        diag('Sign in clicked');
-        if (!tokenClient){
-          if (!initGsi()) { alert('Google Identity not ready yet. Try again in a moment.'); return; }
-        }
+        diag('Sign in clicked'); if (!tokenClient){ if (!initGsi()) { alert('Google Identity not ready. Try again in a moment.'); return; } }
         tokenClient.requestAccessToken({ prompt:'consent' });
       });
       document.getElementById('signOutBtn').addEventListener('click', ()=>{ diag('Sign out clicked'); accessToken=null; tokenExpiresAt=0; setAuthUI(false); loadData(); });
 
-      // Ensure Open Sheet reflects current ID immediately
+      // Keep link neutral when ID changes
       const idInput = document.getElementById('sheetId');
       const sheetLink = document.getElementById('sheetLink');
-      const applySheetLink = () => { const id = (idInput.value||'').trim(); if(id) sheetLink.href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`; };
-      idInput.addEventListener('input', applySheetLink);
-      applySheetLink();
+      const applySheetLink = () => { const id = (idInput.value||'').trim(); if(id && sheetLink) sheetLink.href = `https://docs.google.com/spreadsheets/d/${id}/edit`; };
+      idInput.addEventListener('input', applySheetLink); applySheetLink();
 
-      // First data load
+      // Data Source collapsible
+      const savedDs = localStorage.getItem('ds:expanded') === '1';
+      applyDsState(savedDs);
+      if (dsBtn){ dsBtn.addEventListener('click', ()=>{ const next = dsBtn.getAttribute('aria-expanded') !== 'true'; applyDsState(next); localStorage.setItem('ds:expanded', next ? '1' : '0'); }); }
+
+      // Initial data load
       loadData();
-    });
 
-    function setAuthUI(signedIn){
-      const who=document.getElementById('whoAmI'); const inBtn=document.getElementById('signInBtn'); const outBtn=document.getElementById('signOutBtn'); const mode=document.getElementById('modeChip');
-      if (signedIn){ who.textContent='Signed in'; who.classList.remove('hidden'); outBtn.classList.remove('hidden'); inBtn.classList.add('hidden'); mode.textContent='Mode: Private (Sheets API)'; }
-      else { who.classList.add('hidden'); outBtn.classList.add('hidden'); inBtn.classList.remove('hidden'); mode.textContent='Mode: Public (GViz)'; }
-    }
+      // Register service worker
+      if ('serviceWorker' in navigator){ navigator.serviceWorker.register('./service-worker.js'); }
+    });
   </script>
 </body>
 </html>

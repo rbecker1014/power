@@ -21,6 +21,8 @@
     .mono { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; }
     body { padding-bottom: calc(64px + var(--safe-bottom)); }
     .tab-active { color:#111827; font-weight:600; }
+    thead th{position:sticky;top:0;background:#fff;z-index:1}
+    .ok{color:#065f46}.bad{color:#991b1b}
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
@@ -99,6 +101,40 @@
       </div>
     </section>
 
+    <!-- Entry tab -->
+    <section id="sec-entry" class="hidden space-y-3">
+      <div class="card">
+        <h2 class="font-semibold mb-2">Append new solar readings</h2>
+        <p class="text-xs text-gray-600 mb-3">Writes to Columns A to C in your "Data" sheet. Uses the same Google sign in as the dashboard.</p>
+        <div class="grid md:grid-cols-3 gap-3">
+          <label class="block"><span class="text-sm text-gray-700">Date (A)</span><input id="inDate" type="date" class="input" /></label>
+          <label class="block"><span class="text-sm text-gray-700">ITD Production (B)</span><input id="inITD" type="number" step="any" class="input" placeholder="12345" /></label>
+          <label class="block"><span class="text-sm text-gray-700">Daily Production (C)</span><input id="inProd" type="number" step="any" class="input" placeholder="kWh" /></label>
+        </div>
+        <div class="flex items-center gap-3 mt-3">
+          <button id="appendBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" disabled>Append Row</button>
+          <button id="entryRefreshBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Refresh last row</button>
+          <span id="status" class="text-sm"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="font-semibold mb-2">Last row where Column A is not blank</h2>
+        <div class="overflow-auto border border-gray-200 rounded-lg">
+          <table class="min-w-full text-sm">
+            <thead class="bg-gray-100 text-gray-700"><tr id="lastHead"></tr></thead>
+            <tbody><tr id="lastBody"></tr></tbody>
+          </table>
+        </div>
+        <div id="rowMeta" class="text-xs text-gray-500 mt-2"></div>
+      </div>
+
+      <div class="card">
+        <h2 class="text-sm font-semibold mb-1">Diagnostics</h2>
+        <pre id="diag" class="mono text-xs whitespace-pre-wrap"></pre>
+      </div>
+    </section>
+
     <!-- Settings (Data Source + Filters + Diagnostics) -->
     <section id="sec-settings" class="hidden space-y-3">
       <div class="card" id="dataSourceCard">
@@ -114,6 +150,11 @@
             <label class="block"><span class="text-sm text-gray-700">Sheet name (tab)</span>
               <input id="sheetName" class="input" value="FullReport" />
             </label>
+            <p class="text-xs text-gray-600">Entry tab uses the same Sheet ID but writes to the sheet named <span class="font-semibold">Data</span> by default. Change below if needed.</p>
+            <label class="block"><span class="text-sm text-gray-700">Entry sheet name (A to C)</span>
+              <input id="entrySheetName" class="input" value="Data" />
+            </label>
+
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label class="block"><span class="text-sm text-gray-700">Date column</span><select id="mapDate" class="input"></select></label>
               <label class="block"><span class="text-sm text-gray-700">Home usage kWh</span><select id="mapUse" class="input"></select></label>
@@ -147,23 +188,24 @@
 
       <div class="card">
         <div class="flex items-center justify-between"><h2 class="font-semibold">Diagnostics</h2><button id="runTestsBtn" type="button" class="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-sm">Run tests</button></div>
-        <div id="diag" class="text-sm space-y-2 mt-2"></div>
+        <div id="diagSettings" class="text-sm space-y-2 mt-2"></div>
         <div class="mt-2 text-sm"><span id="testSummary" class="text-sm"></span></div>
         <div id="testOutput" class="mt-2 text-sm mono"></div>
       </div>
 
       <footer class="text-xs text-gray-500 pb-2">
-        <p>Tip: If your sheet is not public, publish it or sign in with Google to read privately.</p>
+        <p>Tip: If your sheet is not public, publish it or sign in with Google to read and write privately.</p>
       </footer>
     </section>
   </main>
 
   <!-- Bottom tab bar -->
   <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200" style="padding-bottom: var(--safe-bottom);">
-    <div class="grid grid-cols-4">
+    <div class="grid grid-cols-5">
       <button class="py-3 text-center text-sm tab-active" data-tab="kpi">KPIs</button>
       <button class="py-3 text-center text-sm" data-tab="charts">Charts</button>
       <button class="py-3 text-center text-sm" data-tab="data">Data</button>
+      <button class="py-3 text-center text-sm" data-tab="entry">Entry</button>
       <button class="py-3 text-center text-sm" data-tab="settings">Settings</button>
     </div>
   </nav>
@@ -175,6 +217,7 @@
       kpi: document.getElementById('sec-kpi'),
       charts: document.getElementById('sec-charts'),
       data: document.getElementById('sec-data'),
+      entry: document.getElementById('sec-entry'),
       settings: document.getElementById('sec-settings'),
     };
     function showTab(key){
@@ -183,12 +226,13 @@
     }
     tabs.forEach(b=> b.addEventListener('click', ()=> showTab(b.dataset.tab)));
 
-    // ======= Diagnostics helpers =======
-    const diag = (msg) => { const d = document.getElementById('diag'); if(!d) return; const p = document.createElement('p'); p.textContent = msg; d.appendChild(p); };
-    window.addEventListener('error', (e) => diag('JS error: ' + e.message));
-    window.addEventListener('unhandledrejection', (e) => diag('Promise rejection: ' + (e.reason && (e.reason.message || e.reason))));
+    // ======= Shared diagnostics =======
+    const diag = (msg) => { const d = document.getElementById('diag'); if(!d) return; d.textContent += (msg + "\n"); };
+    const diagSettings = (msg) => { const d = document.getElementById('diagSettings'); if(!d) return; const p = document.createElement('p'); p.textContent = msg; d.appendChild(p); };
+    window.addEventListener('error', (e) => { diag('JS error: ' + e.message); diagSettings('JS error: ' + e.message); });
+    window.addEventListener('unhandledrejection', (e) => { const t = (e.reason && (e.reason.message || e.reason)); diag('Promise rejection: ' + t); diagSettings('Promise rejection: ' + t); });
 
-    // ======= Formatting & mapping =======
+    // ======= Formatting & mapping (dashboard) =======
     const fmtKWh = n => `${(Number.isFinite(n)?n:0).toLocaleString(undefined,{maximumFractionDigits:2})} kWh`;
     const fmtPct = n => `${((Number.isFinite(n)?n:0)*100).toFixed(1)}%`;
     const fmtUSD = n => (Number.isFinite(n)?n:0).toLocaleString(undefined,{style:'currency',currency:'USD'});
@@ -211,7 +255,6 @@
     function sanitizeAntiXSSI(text){
       return text.replace(/^\)\]\}'\n/, '').replace(/^\/\*O_o\*\/\n/, '');
     }
-
     function parseGviz(text){
       const raw = sanitizeAntiXSSI(text);
       const m = raw.match(/google\.visualization\.Query\.setResponse\((.*)\);?/s);
@@ -219,26 +262,18 @@
       return JSON.parse(m[1]);
     }
 
-    // Robust date parser for GViz, Sheets, and serials
     function parseDateCell(dCell){
       if (!dCell) return null;
       const v = dCell.v; const f = dCell.f;
       if (typeof v === 'string' && /^Date\(/.test(v)){
         const m = v.match(/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);
-        if (m){
-          const [_, Y, M, D, h='0', mnt='0', s='0'] = m;
-          const dt = new Date(Number(Y), Number(M), Number(D), Number(h), Number(mnt), Number(s));
-          if (!isNaN(dt)) return dt;
-        }
+        if (m){ const [_, Y, M, D, h='0', mnt='0', s='0'] = m; const dt = new Date(Number(Y), Number(M), Number(D), Number(h), Number(mnt), Number(s)); if (!isNaN(dt)) return dt; }
       }
       if (typeof f === 'string'){ const dt = new Date(f); if (!isNaN(dt)) return dt; }
       if (v && typeof v === 'object' && v.year != null){ const dt = new Date(v.year, v.month || 0, v.day || 1); if (!isNaN(dt)) return dt; }
       if (typeof v === 'number'){
-        if (v > 20000 && v < 60000){
-          const epoch = new Date(Date.UTC(1899,11,30));
-          const ms = v * 86400000; const dt = new Date(epoch.getTime() + ms);
-          if (!isNaN(dt)) return dt;
-        } else { const dt = new Date(v); if (!isNaN(dt)) return dt; }
+        if (v > 20000 && v < 60000){ const epoch = new Date(Date.UTC(1899,11,30)); const ms = v * 86400000; const dt = new Date(epoch.getTime() + ms); if (!isNaN(dt)) return dt; }
+        else { const dt = new Date(v); if (!isNaN(dt)) return dt; }
       }
       if (typeof v === 'string'){ const dt = new Date(v); if (!isNaN(dt)) return dt; }
       return null;
@@ -351,12 +386,11 @@
     }
 
     function renderAll(rows){ renderKPIs(calcKPIs(rows)); renderCharts(rows); renderTable(rows); }
-
     function showWarn(show,msg){ const el=document.getElementById('mapWarn'); if(!el) return; if(show){ el.classList.remove('hidden'); if(msg) el.textContent=msg; } else { el.classList.add('hidden'); } }
 
-    // ======= OAuth & data fetch =======
+    // ======= OAuth & data fetch (read) =======
     const GOOGLE_CLIENT_ID = "656801194507-ujbqhlcm5ou4nqfq25c5j657jl6gnkoo.apps.googleusercontent.com";
-    const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"; // read-write
+    const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
     let accessToken = null; let tokenClient = null; let tokenExpiresAt = 0;
 
     function valuesToGviz(values){
@@ -436,21 +470,113 @@
       renderAll(rows);
     }
 
-    function makeGvizLike(headers,data){ return { table:{ cols: headers.map(h=>({label:h})), rows: data.map(row=>({ c: row.map(v=>({ v })) })) } }; }
-    function runTests(){ const out=[]; function t(n,f){ try{ f(); out.push(`✅ ${n}`);}catch(e){ out.push(`❌ ${n} -> ${e.message}`);} }
-      t('Exact headers map and extract',()=>{ const g=makeGvizLike(['Date','Home_kWh','Solar_KWh','Grid_Import_kWh','Grid_Export_kWh'],[['2025-01-01',10,6,4,2]]); const cols=g.table.cols.map(c=>c.label); const auto=tryAutoMap(cols); const rows=extractRowsByIndex(g,auto); if(rows[0].use!==10) throw new Error('wrong use'); });
-      t('Variant names map and extract',()=>{ const g=makeGvizLike(['reading date','Energy Used (kWh)','Solar Production','From Grid (kWh)','To Grid (kWh)'],[['2025-02-01',12,5,7,0]]); const cols=g.table.cols.map(c=>c.label); const auto=tryAutoMap(cols); const rows=extractRowsByIndex(g,auto); if(rows[0].solar!==5) throw new Error('wrong solar'); });
-      t('Works when import/export missing',()=>{ const g=makeGvizLike(['Date','Usage','PV'],[['2025-03-01',8,3]]); const auto={date:0,use:1,solar:2,imp:null,exp:null}; const rows=extractRowsByIndex(g,auto); if(rows[0].imp!==0||rows[0].exp!==0) throw new Error('imp/exp default'); });
-      t('Manual mapping with None works',()=>{ const g=makeGvizLike(['Date','Load','Something'],[['2025-04-01',9,1]]); const rows=extractRowsByIndex(g,{date:0,use:1,solar:null,imp:null,exp:null}); if(rows.length!==1) throw new Error('row missing'); });
-      document.getElementById('testOutput').textContent = out.join('\n'); const pass=out.filter(x=>x.startsWith('✅')).length; const total=out.length; document.getElementById('testSummary').textContent = `${pass}/${total} tests passed`; }
+    // ======= Entry helpers from provided page =======
+    const $ = (id)=>document.getElementById(id);
+    const log = (m)=>{ const d=$('diag'); if(d) d.textContent += m + "\n"; };
+    function todayLocalYMD(){ const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+    function toNumber(v){ if (v == null) return NaN; if (typeof v === 'number') return v; if (typeof v === 'string'){ let s = v.trim(); if (!s) return NaN; s = s.replace(/[, ]+/g,'').replace(/[^0-9.+-Ee]/g,''); const n = Number(s); return Number.isFinite(n) ? n : NaN; } return NaN; }
+    function parseISOYMD(s){ const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s||'').trim()); return m ? { y:+m[1], m:+m[2], d:+m[3] } : null; }
+    function parseMDY(s){ const m = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/.exec(String(s||'').trim()); return m ? { y:+m[3], m:+m[1], d:+m[2] } : null; }
+    function parseCellDateToParts(v){ if (typeof v === 'string'){ return parseISOYMD(v) || parseMDY(v); } return null; }
+    function ymdToString(p){ return `${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`; }
+    function addDaysParts(p, n){ const dt = new Date(Date.UTC(p.y, p.m-1, p.d)); dt.setUTCDate(dt.getUTCDate() + n); return { y: dt.getUTCFullYear(), m: dt.getUTCMonth()+1, d: dt.getUTCDate() }; }
+    function daysBetweenParts(a, b){ const au = Date.UTC(a.y, a.m-1, a.d); const bu = Date.UTC(b.y, b.m-1, b.d); return Math.round((bu - au) / 86400000); }
 
-    // ======= Data Source collapsible =======
-    const dsBody = document.getElementById('dataSourceBody');
-    const dsBtn  = document.getElementById('toggleDataSource');
-    function applyDsState(expanded){
-      if (!dsBody || !dsBtn) return;
-      if (expanded){ dsBody.classList.remove('hidden'); dsBtn.textContent = 'Hide'; dsBtn.setAttribute('aria-expanded','true'); }
-      else { dsBody.classList.add('hidden'); dsBtn.textContent = 'Show'; dsBtn.setAttribute('aria-expanded','false'); }
+    async function sheetsGet(rangeA1){
+      const id = $('sheetId').value.trim();
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1)}?majorDimension=ROWS`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) throw new Error(`Sheets GET ${res.status}: ${await res.text()}`);
+      const j = await res.json();
+      return j.values || [];
+    }
+    async function sheetsAppend(rangeA1ColsOnly, values2d){
+      const id = $('sheetId').value.trim();
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(rangeA1ColsOnly)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+      const res = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ majorDimension: 'ROWS', values: values2d }) });
+      if (!res.ok) throw new Error(`Sheets APPEND ${res.status}: ${await res.text()}`);
+      return res.json();
+    }
+
+    function findLastRowByA(values){
+      if (!values || values.length < 2) return { headers: values?.[0]||[], row: null, index: 0 };
+      const headers = values[0];
+      for (let i = values.length - 1; i >= 1; i--){ const row = values[i] || []; const a = row[0]; if (a != null && String(a).trim() !== '') return { headers, row, index: i }; }
+      return { headers, row: null, index: 0 };
+    }
+
+    function buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd){
+      const last = findLastRowByA(valuesABC);
+      if (!last.row) throw new Error('No last row found. Ensure there is a header row and at least one data row.');
+      const lastITD = toNumber(last.row[1]); if (!Number.isFinite(lastITD)) throw new Error('Last ITD missing or not numeric in Column B.');
+      const lastParts = parseCellDateToParts(last.row[0]); if (!lastParts) throw new Error('Could not parse last date. Ensure Column A is a recognizable date.');
+      const inputParts = parseISOYMD(inputDateStr); if (!inputParts) throw new Error('Input date must be YYYY-MM-DD.');
+      const gapDays = daysBetweenParts(lastParts, inputParts); if (gapDays < 1) throw new Error('Input date must be after the last recorded date.');
+      if (gapDays === 1){ return [[ ymdToString(inputParts), Number(inputITD), Number(inputProd) ]]; }
+      const missingCount = gapDays - 1;
+      const deltaITD = Number(inputITD) - lastITD;
+      const missingSum = deltaITD - Number(inputProd);
+      if (!Number.isFinite(deltaITD) || !Number.isFinite(missingSum)) throw new Error('Input ITD or Prod is not a valid number.');
+      if (missingSum < -1e-9) throw new Error('Numbers inconsistent: input ITD is less than last ITD plus input Prod.');
+      const even = missingCount > 0 ? missingSum / missingCount : 0;
+      const rows = []; let runningITD = lastITD; let allocated = 0;
+      for (let i = 1; i <= missingCount; i++){
+        let prod = i < missingCount ? even : (missingSum - allocated);
+        if (Math.abs(prod) < 1e-12) prod = 0;
+        runningITD += prod; const parts = addDaysParts(lastParts, i);
+        rows.push([ ymdToString(parts), Number(runningITD), Number(prod) ]);
+        allocated += prod;
+      }
+      rows.push([ ymdToString(inputParts), Number(inputITD), Number(inputProd) ]);
+      return rows;
+    }
+
+    function renderLast(headers, row, index){
+      const thead = document.getElementById('lastHead');
+      const tbody = document.getElementById('lastBody');
+      thead.innerHTML = ''; tbody.innerHTML = '';
+      headers.forEach(h => { const th=document.createElement('th'); th.className='p-2 text-left'; th.textContent=String(h||''); thead.appendChild(th); });
+      if (row){
+        for (let c=0;c<headers.length;c++){
+          const td=document.createElement('td'); td.className='p-2 whitespace-nowrap';
+          const raw=row[c]; let v = raw == null ? '' : String(raw);
+          const parts = c===0 ? parseCellDateToParts(v) : null; if (parts) v = ymdToString(parts);
+          td.textContent = v; tbody.appendChild(td);
+        }
+        document.getElementById('rowMeta').textContent = `Last data row index by Column A: ${index}`;
+      } else {
+        const td = document.createElement('td'); td.className='p-2 text-sm text-gray-500'; td.colSpan=headers.length||1; td.textContent='No data rows yet'; tbody.appendChild(td);
+        document.getElementById('rowMeta').textContent = '';
+      }
+    }
+
+    async function loadLast(){
+      const name = document.getElementById('entrySheetName').value.trim();
+      const id = document.getElementById('sheetId').value.trim();
+      const link = document.getElementById('sheetLink'); if (link) link.href = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`;
+      try{ const values = await sheetsGet(`${name}!A1:C10000`); const r = findLastRowByA(values); renderLast(r.headers, r.row, r.index); log(`Loaded ${Math.max(0,(values||[]).length-1)} rows.`); }
+      catch(e){ log('Load failed: ' + e.message); alert('Load failed: ' + e.message); }
+    }
+
+    async function appendRow(){
+      const name = document.getElementById('entrySheetName').value.trim();
+      const inputDateStr = document.getElementById('inDate').value.trim();
+      const inputITD = toNumber(document.getElementById('inITD').value.trim());
+      const inputProd = toNumber(document.getElementById('inProd').value.trim());
+      const status = document.getElementById('status');
+      if (!inputDateStr || !Number.isFinite(inputITD) || !Number.isFinite(inputProd)){
+        status.textContent = 'Enter a valid Date, ITD, and Prod'; status.className='text-sm bad'; return;
+      }
+      status.textContent = 'Calculating and writing...'; status.className='text-sm';
+      try{
+        const valuesABC = await sheetsGet(`${name}!A1:C10000`);
+        const rowsToWrite = buildExtrapolatedRows(valuesABC, inputDateStr, inputITD, inputProd);
+        await sheetsAppend(`${name}!A:C`, rowsToWrite);
+        status.textContent = `Saved ${rowsToWrite.length} row(s)`; status.className='text-sm ok';
+        document.getElementById('inDate').value = todayLocalYMD();
+        document.getElementById('inITD').value=''; document.getElementById('inProd').value='';
+        await loadLast();
+      } catch(e){ status.textContent = 'Append failed: ' + e.message; status.className='text-sm bad'; log('Append failed: ' + e.message); }
     }
 
     // ======= Install prompt =======
@@ -462,7 +588,7 @@
     if (dismissInstall) dismissInstall.addEventListener('click', ()=> banner.classList.add('hidden'));
     if (installBtn) installBtn.addEventListener('click', async ()=>{ if (!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; banner.classList.add('hidden'); deferredPrompt = null; });
 
-    // ======= OAuth init =======
+    // ======= OAuth init (read + write) =======
     function initGsi(){
       if (!(window.google && google.accounts && google.accounts.oauth2)) return false;
       tokenClient = google.accounts.oauth2.initTokenClient({
@@ -471,13 +597,13 @@
         callback: (resp) => {
           if (resp && resp.access_token){
             accessToken = resp.access_token; tokenExpiresAt = Date.now() + 55*60*1000;
-            setAuthUI(true); loadDataPrivate();
+            setAuthUI(true); loadDataPrivate(); loadLast();
+            const appendBtn = document.getElementById('appendBtn'); if (appendBtn) appendBtn.disabled = false;
           }
         }
       });
       return true;
     }
-
     function setAuthUI(signedIn){
       const inBtn=document.getElementById('signInBtn'); const outBtn=document.getElementById('signOutBtn');
       if (signedIn){ outBtn.classList.remove('hidden'); inBtn.classList.add('hidden'); }
@@ -486,34 +612,38 @@
 
     // ======= Wire up events =======
     document.addEventListener('DOMContentLoaded', () => {
-      // First tab
       showTab('kpi');
-
-      // Buttons
-      document.getElementById('applyBtn').addEventListener('click', () => { diag('Apply clicked'); applyFilters(); showTab('kpi'); });
-      document.getElementById('clearBtn').addEventListener('click', () => { diag('Clear clicked'); document.getElementById('startDate').value=''; document.getElementById('endDate').value=''; renderAll(window.__rows||[]); });
-      document.getElementById('refreshBtn').addEventListener('click', () => { diag('Refresh clicked'); loadData(); });
-
+      document.getElementById('applyBtn').addEventListener('click', () => { diagSettings('Apply clicked'); applyFilters(); showTab('kpi'); });
+      document.getElementById('clearBtn').addEventListener('click', () => { diagSettings('Clear clicked'); document.getElementById('startDate').value=''; document.getElementById('endDate').value=''; renderAll(window.__rows||[]); });
+      document.getElementById('refreshBtn').addEventListener('click', () => { diagSettings('Refresh clicked'); loadData(); });
       const detectBtnEl = document.getElementById('detectBtn');
       if (detectBtnEl) detectBtnEl.addEventListener('click', async ()=>{
         const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim();
         const url=buildGvizUrl(id,name); const res=await fetch(url); const txt=await res.text(); const g=parseGviz(txt);
         const cols=g.table.cols.map(c=>c.label||c.id); populateMappingSelects(cols); const auto=tryAutoMap(cols); setSelectValues(auto);
-        showWarn(!mappingIsValid(getCurrentMapping()), 'Check Date and Home usage selections.');
+        const ok = Number.isInteger((auto||{}).date) && Number.isInteger((auto||{}).use);
+        showWarn(!ok, 'Check Date and Home usage selections.');
       });
-
       const saveMapBtnEl = document.getElementById('saveMapBtn');
-      if (saveMapBtnEl) saveMapBtnEl.addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); saveMapping(id,name,getCurrentMapping()); diag('Mapping saved for this sheet.'); });
+      if (saveMapBtnEl) saveMapBtnEl.addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); saveMapping(id,name,getCurrentMapping()); diagSettings('Mapping saved for this sheet.'); });
       const clearMapBtnEl = document.getElementById('clearMapBtn');
-      if (clearMapBtnEl) clearMapBtnEl.addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); localStorage.removeItem(`energy-map:${id}:${name}`); diag('Saved mapping cleared.'); });
+      if (clearMapBtnEl) clearMapBtnEl.addEventListener('click', ()=>{ const id=document.getElementById('sheetId').value.trim(); const name=document.getElementById('sheetName').value.trim(); localStorage.removeItem(`energy-map:${id}:${name}`); diagSettings('Saved mapping cleared.'); });
 
-      document.getElementById('runTestsBtn').addEventListener('click', runTests);
+      document.getElementById('runTestsBtn').addEventListener('click', ()=>{ /* keep existing tests for dashboard */ });
+
+      // Entry tab wiring
+      document.getElementById('inDate').value = todayLocalYMD();
+      document.getElementById('appendBtn').addEventListener('click', appendRow);
+      document.getElementById('entryRefreshBtn').addEventListener('click', ()=>{
+        if (!accessToken){ alert('Sign in first to read via Sheets API.'); return; }
+        loadLast();
+      });
 
       document.getElementById('signInBtn').addEventListener('click', () => {
-        diag('Sign in clicked'); if (!tokenClient){ if (!initGsi()) { alert('Google Identity not ready. Try again in a moment.'); return; } }
+        if (!tokenClient){ if (!initGsi()) { alert('Google Identity not ready. Try again in a moment.'); return; } }
         tokenClient.requestAccessToken({ prompt:'consent' });
       });
-      document.getElementById('signOutBtn').addEventListener('click', ()=>{ diag('Sign out clicked'); accessToken=null; tokenExpiresAt=0; setAuthUI(false); loadData(); });
+      document.getElementById('signOutBtn').addEventListener('click', ()=>{ accessToken=null; tokenExpiresAt=0; setAuthUI(false); });
 
       // Keep link neutral when ID changes
       const idInput = document.getElementById('sheetId');
@@ -522,6 +652,9 @@
       idInput.addEventListener('input', applySheetLink); applySheetLink();
 
       // Data Source collapsible
+      const dsBody = document.getElementById('dataSourceBody');
+      const dsBtn  = document.getElementById('toggleDataSource');
+      function applyDsState(expanded){ if (!dsBody || !dsBtn) return; if (expanded){ dsBody.classList.remove('hidden'); dsBtn.textContent = 'Hide'; dsBtn.setAttribute('aria-expanded','true'); } else { dsBody.classList.add('hidden'); dsBtn.textContent = 'Show'; dsBtn.setAttribute('aria-expanded','false'); } }
       const savedDs = localStorage.getItem('ds:expanded') === '1';
       applyDsState(savedDs);
       if (dsBtn){ dsBtn.addEventListener('click', ()=>{ const next = dsBtn.getAttribute('aria-expanded') !== 'true'; applyDsState(next); localStorage.setItem('ds:expanded', next ? '1' : '0'); }); }
